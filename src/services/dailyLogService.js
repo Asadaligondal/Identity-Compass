@@ -48,10 +48,10 @@ export const createDailyLog = async (userId, logData) => {
 // Get all logs for a user
 export const getUserLogs = async (userId, limit = 30) => {
   try {
+    // Simplified query without orderBy to avoid index requirement
     const q = query(
       collection(db, COLLECTION_NAME),
-      where('userId', '==', userId),
-      orderBy('date', 'desc')
+      where('userId', '==', userId)
     );
     
     const querySnapshot = await getDocs(q);
@@ -64,7 +64,14 @@ export const getUserLogs = async (userId, limit = 30) => {
       });
     });
     
-    return logs;
+    // Sort in memory instead of in query
+    logs.sort((a, b) => {
+      const dateA = a.date?.toDate?.() || new Date(0);
+      const dateB = b.date?.toDate?.() || new Date(0);
+      return dateB - dateA; // desc order
+    });
+    
+    return logs.slice(0, limit);
   } catch (error) {
     console.error('Error fetching user logs:', error);
     throw error;
@@ -74,22 +81,33 @@ export const getUserLogs = async (userId, limit = 30) => {
 // Get logs for a specific date range
 export const getLogsByDateRange = async (userId, startDate, endDate) => {
   try {
+    // Simplified query - fetch all user logs and filter in memory
     const q = query(
       collection(db, COLLECTION_NAME),
-      where('userId', '==', userId),
-      where('date', '>=', Timestamp.fromDate(startDate)),
-      where('date', '<=', Timestamp.fromDate(endDate)),
-      orderBy('date', 'desc')
+      where('userId', '==', userId)
     );
     
     const querySnapshot = await getDocs(q);
     const logs = [];
     
     querySnapshot.forEach((doc) => {
-      logs.push({
-        id: doc.id,
-        ...doc.data(),
-      });
+      const data = doc.data();
+      const logDate = data.date?.toDate?.() || new Date(0);
+      
+      // Filter by date range in memory
+      if (logDate >= startDate && logDate <= endDate) {
+        logs.push({
+          id: doc.id,
+          ...data,
+        });
+      }
+    });
+    
+    // Sort in memory
+    logs.sort((a, b) => {
+      const dateA = a.date?.toDate?.() || new Date(0);
+      const dateB = b.date?.toDate?.() || new Date(0);
+      return dateB - dateA;
     });
     
     return logs;
@@ -132,19 +150,33 @@ export const getTagAnalytics = async (userId, days = 30) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
     
+    console.log('📅 Fetching logs from:', startDate.toLocaleDateString(), 'to', new Date().toLocaleDateString());
+    
     const logs = await getLogsByDateRange(userId, startDate, new Date());
+    
+    console.log(`📦 Found ${logs.length} logs in database`);
+    console.log('📋 Raw logs data:', logs);
     
     // Aggregate all tags
     const tagFrequency = {};
     
-    logs.forEach(log => {
+    logs.forEach((log, index) => {
+      console.log(`Log ${index + 1}:`, {
+        date: log.date?.toDate?.()?.toLocaleDateString() || 'No date',
+        tags: log.tags,
+        text: log.text_entry?.substring(0, 50) + '...'
+      });
+      
       if (log.tags && Array.isArray(log.tags)) {
         log.tags.forEach(tag => {
           const normalizedTag = tag.toLowerCase().trim();
           tagFrequency[normalizedTag] = (tagFrequency[normalizedTag] || 0) + 1;
+          console.log(`  ✓ Counted tag: ${normalizedTag} (total: ${tagFrequency[normalizedTag]})`);
         });
       }
     });
+    
+    console.log('🏷️ Final tag frequencies:', tagFrequency);
     
     return {
       totalLogs: logs.length,

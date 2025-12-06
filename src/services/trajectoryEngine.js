@@ -1,5 +1,6 @@
-import { calculateDimensionScores } from '../constants/dimensions';
+import { calculateDimensionScores, getDimensionFromTag } from '../constants/dimensions';
 import { getTagAnalytics } from './dailyLogService';
+import { getUserTagMappings } from './tagMappingService';
 
 /**
  * Trajectory Engine - Analyzes user data to determine life direction
@@ -17,25 +18,29 @@ export const calculateTrajectory = async (userId, days = 30) => {
       };
     }
     
+    // Load user's custom tag mappings
+    const userMappings = await getUserTagMappings(userId);
+    
     // Get all tags from frequency map
     const allTags = Object.keys(analytics.tagFrequency);
     
-    // Calculate dimension scores
-    const dimensionScores = calculateDimensionScores(allTags);
-    
-    // Calculate weighted scores (frequency * occurrence)
-    const weightedScores = {};
-    Object.keys(dimensionScores).forEach(dimension => {
-      weightedScores[dimension] = 0;
-    });
+    // Calculate weighted scores using user mappings
+    const weightedScores = {
+      Career: 0,
+      Spiritual: 0,
+      Physical: 0,
+      Social: 0,
+    };
     
     allTags.forEach(tag => {
-      const scores = calculateDimensionScores([tag]);
-      Object.keys(scores).forEach(dimension => {
-        if (scores[dimension] > 0) {
-          weightedScores[dimension] += analytics.tagFrequency[tag];
-        }
-      });
+      const frequency = analytics.tagFrequency[tag];
+      
+      // Check user's custom mapping first, then fall back to predefined
+      const dimension = userMappings[tag] || getDimensionFromTag(tag);
+      
+      if (dimension && weightedScores.hasOwnProperty(dimension)) {
+        weightedScores[dimension] += frequency;
+      }
     });
     
     // Calculate total for percentages
@@ -115,6 +120,118 @@ export const getTrajectoryTrend = async (userId) => {
     };
   } catch (error) {
     console.error('Error calculating trajectory trend:', error);
+    throw error;
+  }
+};
+
+// DEBUG: Calculate and log trajectory scores to console
+export const debugTrajectoryScores = async (userId, days = 30) => {
+  console.group(`🎯 TRAJECTORY CALCULATION (Last ${days} days)`);
+  
+  try {
+    // Fetch analytics
+    const analytics = await getTagAnalytics(userId, days);
+    
+    console.log('📊 Raw Data:', {
+      totalLogs: analytics.totalLogs,
+      dateRange: {
+        start: analytics.dateRange.start.toLocaleDateString(),
+        end: analytics.dateRange.end.toLocaleDateString(),
+      },
+      tagFrequency: analytics.tagFrequency,
+    });
+    
+    if (analytics.totalLogs === 0) {
+      console.warn('⚠️ No logs found in this period');
+      console.groupEnd();
+      return null;
+    }
+    
+    // Get all tags
+    const allTags = Object.keys(analytics.tagFrequency);
+    console.log('🏷️ All Tags Found:', allTags);
+    
+    // Load user's custom tag mappings
+    const userMappings = await getUserTagMappings(userId);
+    console.log('🗺️ User Tag Mappings:', userMappings);
+    
+    // Calculate dimension scores with detailed breakdown
+    const dimensionBreakdown = {};
+    const weightedScores = {
+      Career: 0,
+      Spiritual: 0,
+      Physical: 0,
+      Social: 0,
+    };
+    
+    allTags.forEach(tag => {
+      const frequency = analytics.tagFrequency[tag];
+      
+      // Check user's custom mapping first, then fall back to predefined
+      const dimension = userMappings[tag] || getDimensionFromTag(tag);
+      
+      console.log(`🏷️ Tag "${tag}" (${frequency}x) → ${dimension || 'NOT MAPPED'}`);
+      
+      if (dimension && weightedScores.hasOwnProperty(dimension)) {
+        weightedScores[dimension] += frequency;
+        
+        if (!dimensionBreakdown[dimension]) {
+          dimensionBreakdown[dimension] = [];
+        }
+        dimensionBreakdown[dimension].push({
+          tag,
+          frequency,
+          contribution: frequency,
+          source: userMappings[tag] ? 'User Custom' : 'Predefined',
+        });
+      } else if (!dimension) {
+        console.warn(`⚠️ Tag "${tag}" has no dimension mapping!`);
+      }
+    });
+    
+    console.log('📈 Dimension Scores (Raw Points):', weightedScores);
+    console.log('🔍 Detailed Breakdown by Dimension:', dimensionBreakdown);
+    
+    // Calculate percentages
+    const total = Object.values(weightedScores).reduce((sum, val) => sum + val, 0);
+    const percentages = {};
+    
+    Object.keys(weightedScores).forEach(dimension => {
+      percentages[dimension] = total > 0 
+        ? Math.round((weightedScores[dimension] / total) * 100) 
+        : 0;
+    });
+    
+    console.log('📊 Dimension Percentages:', percentages);
+    
+    // Identify dominant dimension
+    const dominant = Object.keys(percentages).reduce((a, b) => 
+      percentages[a] > percentages[b] ? a : b
+    );
+    
+    console.log('🎯 Dominant Dimension:', dominant, `(${percentages[dominant]}%)`);
+    
+    // Create visual bar chart in console
+    console.log('\n📊 Visual Distribution:');
+    Object.keys(weightedScores).forEach(dimension => {
+      const percentage = percentages[dimension];
+      const bar = '█'.repeat(Math.round(percentage / 2));
+      console.log(`${dimension.padEnd(12)} ${bar} ${percentage}%`);
+    });
+    
+    console.groupEnd();
+    
+    return {
+      totalLogs: analytics.totalLogs,
+      weightedScores,
+      percentages,
+      dominant,
+      breakdown: dimensionBreakdown,
+    };
+    
+  } catch (error) {
+    console.error('❌ Error calculating trajectory:', error);
+    console.groupEnd();
     throw error;
   }
 };
