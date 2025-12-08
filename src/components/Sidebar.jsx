@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  FileText, 
+  FileText,
+  Brain,
   Settings,
   LogOut
 } from 'lucide-react';
@@ -13,6 +14,7 @@ export default function Sidebar() {
   const navItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/daily-log', icon: FileText, label: 'Daily Log' },
+    { path: '/mind-map', icon: Brain, label: 'Mind Map' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 

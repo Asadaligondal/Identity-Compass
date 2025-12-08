@@ -11,6 +11,7 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
+import { recordTagConnections } from './tagConnectionService';
 
 const COLLECTION_NAME = 'daily_logs';
 
@@ -37,6 +38,16 @@ export const createDailyLog = async (userId, logData) => {
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
+    
+    // Record tag co-occurrences if there are multiple tags
+    if (logData.tags && logData.tags.length >= 2) {
+      try {
+        await recordTagConnections(logData.tags);
+      } catch (connError) {
+        // Don't fail the log creation if connection recording fails
+        console.error('Warning: Failed to record tag connections:', connError);
+      }
+    }
     
     return { id: docRef.id, success: true };
   } catch (error) {
@@ -125,6 +136,16 @@ export const updateDailyLog = async (logId, updates) => {
       ...updates,
       updatedAt: Timestamp.now(),
     });
+    
+    // Record tag co-occurrences if tags were updated and there are multiple tags
+    if (updates.tags && updates.tags.length >= 2) {
+      try {
+        await recordTagConnections(updates.tags);
+      } catch (connError) {
+        // Don't fail the update if connection recording fails
+        console.error('Warning: Failed to record tag connections:', connError);
+      }
+    }
     
     return { success: true };
   } catch (error) {

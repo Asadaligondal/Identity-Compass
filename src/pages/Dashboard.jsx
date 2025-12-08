@@ -1,41 +1,68 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { debugTrajectoryScores, calculateTrajectory } from '../services/trajectoryEngine';
-import { Calculator, BarChart3 } from 'lucide-react';
+import { getUserTagMappings } from '../services/tagMappingService';
+import { debugTagConnections } from '../services/tagConnectionService';
+import { Calculator, BarChart3, RefreshCw, TrendingUp } from 'lucide-react';
+import TrajectoryRadar from '../components/TrajectoryRadar';
+import TrajectoryLineChart from '../components/TrajectoryLineChart';
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [trajectoryData, setTrajectoryData] = useState(null);
+  const [userMappings, setUserMappings] = useState({});
   const [error, setError] = useState('');
 
-  // Test trajectory calculation
-  const handleCalculateTrajectory = async () => {
+  // Auto-load trajectory on mount
+  useEffect(() => {
+    if (user) {
+      loadTrajectory();
+      loadUserMappings();
+    }
+  }, [user]);
+
+  // Load user's custom tag mappings
+  const loadUserMappings = async () => {
+    if (!user) return;
+    try {
+      const mappings = await getUserTagMappings(user.uid);
+      setUserMappings(mappings);
+    } catch (err) {
+      console.error('Error loading user mappings:', err);
+    }
+  };
+
+  // Load trajectory data
+  const loadTrajectory = async () => {
     if (!user) return;
     
     setLoading(true);
     setError('');
-    setTrajectoryData(null); // Clear old data first
     
     try {
-      console.clear(); // Clear console for cleaner output
-      console.log('🚀 Starting FRESH trajectory calculation...');
-      console.log('👤 User ID:', user.uid);
-      console.log('📅 Analyzing last 30 days');
-      console.log('-----------------------------------');
-      
-      // Call debug function (logs detailed info to console)
-      const debugData = await debugTrajectoryScores(user.uid, 30);
-      
-      // Also get formatted trajectory data
       const trajectory = await calculateTrajectory(user.uid, 30);
-      
-      console.log('-----------------------------------');
-      console.log('✅ Trajectory calculation complete!');
-      console.log('📊 Results:', trajectory);
-      
       setTrajectoryData(trajectory);
-      
+    } catch (err) {
+      console.error('Error loading trajectory:', err);
+      setError(err.message || 'Failed to load trajectory');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Test trajectory calculation with debug output
+  const handleDebugCalculation = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      console.clear();
+      console.log('🚀 DEBUG: Detailed trajectory calculation...');
+      await debugTrajectoryScores(user.uid, 30);
+      await loadTrajectory();
     } catch (err) {
       console.error('❌ Error:', err);
       setError(err.message || 'Failed to calculate trajectory');
@@ -44,127 +71,132 @@ export default function Dashboard() {
     }
   };
 
+  // Debug tag connections network
+  const handleDebugConnections = async () => {
+    console.clear();
+    console.log('🔗 DEBUG: Tag Connection Network...\n');
+    await debugTagConnections();
+  };
+
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-neon-blue via-neon-purple to-neon-green bg-clip-text text-transparent mb-2">
-          Dashboard
-        </h1>
-        <p className="text-neon-blue/60">
-          Your life trajectory visualization
-        </p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-neon-blue via-neon-purple to-neon-green bg-clip-text text-transparent mb-2">
+            Dashboard
+          </h1>
+          <p className="text-neon-blue/60">
+            Your life trajectory visualization
+          </p>
+        </div>
+        
+        <button
+          onClick={loadTrajectory}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-cyber-grey border border-neon-blue/30 text-neon-blue rounded-lg hover:bg-neon-blue/10 transition-all disabled:opacity-50"
+        >
+          <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
       </div>
 
-      {/* Test Trajectory Calculation */}
-      <div className="bg-cyber-grey border border-neon-blue/30 rounded-lg p-8 mb-6 shadow-xl shadow-neon-blue/10">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <Calculator className="text-neon-blue" size={24} />
-            <div>
-              <h2 className="text-xl font-semibold text-cyber-text">
-                Trajectory Calculator (Step 5)
-              </h2>
-              <p className="text-sm text-cyber-muted">
-                Test the math - calculates last 30 days of logs
-              </p>
-            </div>
-          </div>
-          
-          <button
-            onClick={handleCalculateTrajectory}
-            disabled={loading}
-            className="px-6 py-3 bg-gradient-to-r from-neon-blue to-neon-purple text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-neon-blue/50 transition-all disabled:opacity-50"
-          >
-            {loading ? 'Calculating...' : 'Calculate Scores'}
-          </button>
+      {error && (
+        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+          <p className="text-red-400">{error}</p>
         </div>
+      )}
 
-        {error && (
-          <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg mb-4">
-            <p className="text-red-400">{error}</p>
-          </div>
-        )}
+      {/* Main Radar Chart Visualization */}
+      {loading && !trajectoryData && (
+        <div className="bg-cyber-grey border border-neon-blue/30 rounded-lg p-12 text-center shadow-xl shadow-neon-blue/10 mb-6">
+          <div className="w-16 h-16 mx-auto mb-4 border-4 border-neon-blue border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-neon-blue">Loading your trajectory...</p>
+        </div>
+      )}
 
-        {/* Results Display */}
-        {trajectoryData && trajectoryData.hasData && (
-          <div className="space-y-4">
-            <div className="p-4 bg-cyber-dark rounded-lg border border-neon-green/20">
-              <p className="text-cyber-muted text-sm mb-2">Total Logs Analyzed</p>
-              <p className="text-2xl font-bold text-neon-green">{trajectoryData.totalLogs}</p>
-            </div>
-
-            <div className="p-4 bg-cyber-dark rounded-lg border border-neon-blue/20">
-              <p className="text-cyber-muted text-sm mb-3">Dimension Scores (Raw Points)</p>
-              <div className="space-y-2">
-                {Object.entries(trajectoryData.dimensionScores).map(([dimension, score]) => (
-                  <div key={dimension} className="flex justify-between items-center">
-                    <span className="text-cyber-text">{dimension}</span>
-                    <span className="text-neon-blue font-mono font-bold">{score} points</span>
-                  </div>
-                ))}
+      {trajectoryData && trajectoryData.hasData && (
+        <div className="mb-6">
+          <div className="bg-cyber-grey border border-neon-blue/30 rounded-lg p-6 shadow-xl shadow-neon-blue/10">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <TrendingUp className="text-neon-blue" size={24} />
+                <div>
+                  <h2 className="text-2xl font-bold text-cyber-text">Life Trajectory Radar</h2>
+                  <p className="text-sm text-cyber-muted">Based on your last 30 days ({trajectoryData.totalLogs} logs)</p>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDebugConnections}
+                  className="px-4 py-2 bg-cyber-dark border border-neon-green/30 text-neon-green text-sm rounded-lg hover:bg-neon-green/10 transition-all"
+                  title="View tag co-occurrence network in console"
+                >
+                  🔗 Connections
+                </button>
+                
+                <button
+                  onClick={handleDebugCalculation}
+                  className="px-4 py-2 bg-cyber-dark border border-neon-purple/30 text-neon-purple text-sm rounded-lg hover:bg-neon-purple/10 transition-all"
+                >
+                  <Calculator size={16} className="inline mr-1" />
+                  Debug Console
+                </button>
               </div>
             </div>
 
-            <div className="p-4 bg-cyber-dark rounded-lg border border-neon-purple/20">
-              <p className="text-cyber-muted text-sm mb-3">Dimension Distribution</p>
-              <div className="space-y-3">
-                {Object.entries(trajectoryData.percentages).map(([dimension, percentage]) => (
-                  <div key={dimension}>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-cyber-text">{dimension}</span>
-                      <span className="text-neon-purple font-mono font-bold">{percentage}%</span>
-                    </div>
-                    <div className="w-full bg-cyber-grey rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full transition-all duration-500 ${
-                          dimension === trajectoryData.dominantDimension 
-                            ? 'bg-gradient-to-r from-neon-blue to-neon-purple' 
-                            : 'bg-neon-blue/30'
-                        }`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <TrajectoryRadar trajectoryData={trajectoryData} />
 
-            <div className="p-4 bg-gradient-to-r from-neon-blue/10 to-neon-purple/10 border border-neon-purple/30 rounded-lg">
-              <p className="text-cyber-muted text-sm mb-2">Trajectory Insight</p>
+            <div className="mt-6 p-4 bg-gradient-to-r from-neon-blue/10 to-neon-purple/10 border border-neon-purple/30 rounded-lg">
+              <p className="text-cyber-muted text-sm mb-1">Trajectory Insight</p>
               <p className="text-neon-purple font-medium">{trajectoryData.trajectory}</p>
             </div>
 
-            <div className="p-3 bg-neon-green/10 border border-neon-green/30 rounded-lg">
-              <p className="text-neon-green text-sm">
-                ✅ Open browser console (F12) to see detailed breakdown with tag frequencies
-              </p>
+            <div className="mt-4 grid grid-cols-4 gap-4">
+              {Object.entries(trajectoryData.percentages).map(([dimension, percentage]) => (
+                <div 
+                  key={dimension}
+                  className="p-3 bg-cyber-dark rounded-lg border border-neon-blue/20 text-center hover:border-neon-blue/50 transition-all"
+                >
+                  <p className="text-cyber-muted text-xs mb-1">{dimension}</p>
+                  <p className="text-2xl font-bold text-neon-blue">{percentage}%</p>
+                </div>
+              ))}
             </div>
           </div>
-        )}
-
-        {trajectoryData && !trajectoryData.hasData && (
-          <div className="p-6 bg-cyber-dark rounded-lg border border-yellow-500/30 text-center">
-            <BarChart3 className="mx-auto mb-3 text-yellow-500" size={32} />
-            <p className="text-yellow-500">{trajectoryData.message}</p>
-            <p className="text-cyber-muted text-sm mt-2">
-              Go to Daily Log and create some entries with tags to see your trajectory!
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Placeholder Card */}
-      <div className="bg-cyber-grey border border-neon-blue/30 rounded-lg p-8 text-center shadow-xl shadow-neon-blue/10">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gradient-to-br from-neon-blue/20 to-neon-purple/20 flex items-center justify-center shadow-lg shadow-neon-blue/30">
-          <BarChart3 className="text-neon-blue" size={32} />
         </div>
-        <h2 className="text-xl font-semibold bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent mb-2">
-          Visualization Coming Soon
-        </h2>
-        <p className="text-neon-blue/50">
-          Charts and graphs will appear here in the next step
-        </p>
-      </div>
+      )}
+
+      {/* Timeline Chart */}
+      {trajectoryData && trajectoryData.hasData && (
+        <div className="mb-6">
+          <div className="bg-cyber-grey border border-neon-purple/30 rounded-lg p-6 shadow-xl shadow-neon-purple/10">
+            <div className="flex items-center gap-3 mb-6">
+              <BarChart3 className="text-neon-purple" size={24} />
+              <div>
+                <h2 className="text-2xl font-bold text-cyber-text">30-Day Trajectory Timeline</h2>
+                <p className="text-sm text-cyber-muted">Track how each dimension evolves over time</p>
+              </div>
+            </div>
+
+            <TrajectoryLineChart userId={user.uid} userMappings={userMappings} />
+          </div>
+        </div>
+      )}
+
+      {trajectoryData && !trajectoryData.hasData && (
+        <div className="bg-cyber-grey border border-yellow-500/30 rounded-lg p-12 text-center shadow-xl shadow-yellow-500/10 mb-6">
+          <BarChart3 className="mx-auto mb-4 text-yellow-500" size={48} />
+          <h3 className="text-xl font-semibold text-yellow-500 mb-2">No Data Yet</h3>
+          <p className="text-cyber-muted mb-4">{trajectoryData.message}</p>
+          <a
+            href="/daily-log"
+            className="inline-block px-6 py-3 bg-gradient-to-r from-neon-blue to-neon-purple text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-neon-blue/50 transition-all"
+          >
+            Create Your First Log
+          </a>
+        </div>
+      )}
     </div>
   );
 }
