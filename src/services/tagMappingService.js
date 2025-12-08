@@ -14,7 +14,10 @@ const COLLECTION_NAME = 'tag_mappings';
  * {
  *   userId: string,
  *   mappings: {
- *     [tagName]: dimension
+ *     [tagName]: {
+ *       dimension: string,
+ *       type: string (Concept, Book, Person, Project)
+ *     }
  *   },
  *   updatedAt: Timestamp
  * }
@@ -37,18 +40,23 @@ export const getUserTagMappings = async (userId) => {
   }
 };
 
-// Save or update tag mapping
-export const saveTagMapping = async (userId, tag, dimension) => {
+// Save or update tag mapping (legacy - supports both old and new format)
+export const saveTagMapping = async (userId, tag, dimensionOrConfig) => {
   try {
     const docRef = doc(db, COLLECTION_NAME, userId);
     const docSnap = await getDoc(docRef);
     
     const normalizedTag = tag.toLowerCase().trim();
     
+    // Support both old (string) and new (object) format
+    const mappingValue = typeof dimensionOrConfig === 'string' 
+      ? { dimension: dimensionOrConfig, type: 'Concept' }
+      : dimensionOrConfig;
+    
     if (docSnap.exists()) {
       // Update existing mappings
       const currentMappings = docSnap.data().mappings || {};
-      currentMappings[normalizedTag] = dimension;
+      currentMappings[normalizedTag] = mappingValue;
       
       await updateDoc(docRef, {
         mappings: currentMappings,
@@ -58,7 +66,7 @@ export const saveTagMapping = async (userId, tag, dimension) => {
       // Create new document
       await setDoc(docRef, {
         userId,
-        mappings: { [normalizedTag]: dimension },
+        mappings: { [normalizedTag]: mappingValue },
         updatedAt: new Date(),
       });
     }
@@ -68,6 +76,11 @@ export const saveTagMapping = async (userId, tag, dimension) => {
     console.error('Error saving tag mapping:', error);
     throw error;
   }
+};
+
+// Save tag with dimension and type
+export const saveTagWithType = async (userId, tag, dimension, type = 'Concept') => {
+  return saveTagMapping(userId, tag, { dimension, type });
 };
 
 // Save multiple tag mappings at once

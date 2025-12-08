@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { createDailyLog } from '../services/dailyLogService';
-import { getUserTagMappings, saveTagMapping } from '../services/tagMappingService';
+import { getUserTagMappings, saveTagWithType } from '../services/tagMappingService';
 import { LIFE_DIMENSIONS_LIST, TAG_DIMENSION_MAP, getDimensionFromTag } from '../constants/dimensions';
+import { TAG_TYPES_LIST } from '../constants/tagTypes';
 import { Save, Tag as TagIcon, Hash, CheckCircle } from 'lucide-react';
 import { Timestamp } from 'firebase/firestore';
 
@@ -39,10 +40,14 @@ export default function DailyLog() {
     const matches = text.match(hashtagRegex);
     if (matches) {
       const uniqueTags = [...new Set(matches.map(tag => tag.slice(1).toLowerCase()))];
-      setTags(uniqueTags.map(tag => ({
-        name: tag,
-        dimension: tagMappings[tag] || getDimensionFromTag(tag) || '',
-      })));
+      setTags(uniqueTags.map(tag => {
+        const mapping = tagMappings[tag];
+        return {
+          name: tag,
+          dimension: mapping?.dimension || getDimensionFromTag(tag) || '',
+          type: mapping?.type || 'Concept',
+        };
+      }));
     } else {
       setTags([]);
     }
@@ -60,9 +65,11 @@ export default function DailyLog() {
     if (currentTag.trim()) {
       const normalizedTag = currentTag.toLowerCase().trim().replace('#', '');
       if (!tags.find(t => t.name === normalizedTag)) {
+        const mapping = tagMappings[normalizedTag];
         setTags([...tags, {
           name: normalizedTag,
-          dimension: tagMappings[normalizedTag] || getDimensionFromTag(normalizedTag) || '',
+          dimension: mapping?.dimension || getDimensionFromTag(normalizedTag) || '',
+          type: mapping?.type || 'Concept',
         }]);
       }
       setCurrentTag('');
@@ -71,17 +78,42 @@ export default function DailyLog() {
 
   // Update tag dimension
   const handleDimensionChange = async (tagName, dimension) => {
+    const tag = tags.find(t => t.name === tagName);
+    const type = tag?.type || 'Concept';
+    
     // Update local state immediately for responsiveness
-    setTags(tags.map(tag => 
-      tag.name === tagName ? { ...tag, dimension } : tag
+    setTags(tags.map(t => 
+      t.name === tagName ? { ...t, dimension } : t
     ));
     
     // Update local mapping
-    setTagMappings({ ...tagMappings, [tagName]: dimension });
+    setTagMappings({ ...tagMappings, [tagName]: { dimension, type } });
     
     // Save to Firebase in background (non-blocking)
     try {
-      await saveTagMapping(user.uid, tagName, dimension);
+      await saveTagWithType(user.uid, tagName, dimension, type);
+    } catch (err) {
+      console.error('Error saving tag mapping:', err);
+      // Don't show error to user - mapping is saved locally
+    }
+  };
+
+  // Update tag type
+  const handleTypeChange = async (tagName, type) => {
+    const tag = tags.find(t => t.name === tagName);
+    const dimension = tag?.dimension || '';
+    
+    // Update local state immediately for responsiveness
+    setTags(tags.map(t => 
+      t.name === tagName ? { ...t, type } : t
+    ));
+    
+    // Update local mapping
+    setTagMappings({ ...tagMappings, [tagName]: { dimension, type } });
+    
+    // Save to Firebase in background (non-blocking)
+    try {
+      await saveTagWithType(user.uid, tagName, dimension, type);
     } catch (err) {
       console.error('Error saving tag mapping:', err);
       // Don't show error to user - mapping is saved locally
@@ -219,6 +251,19 @@ export default function DailyLog() {
                 <div className="flex-1 flex items-center gap-2">
                   <span className="text-neon-green font-mono">#{tag.name}</span>
                 </div>
+                
+                <select
+                  value={tag.type || 'Concept'}
+                  onChange={(e) => handleTypeChange(tag.name, e.target.value)}
+                  className="px-3 py-2 bg-cyber-grey border border-yellow-500/30 rounded-lg text-cyber-text focus:outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/20 transition-all text-sm"
+                  title="Tag Type"
+                >
+                  {TAG_TYPES_LIST.map(type => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
                 
                 <select
                   value={tag.dimension}
