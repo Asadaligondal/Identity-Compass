@@ -1,17 +1,26 @@
 import { useState, useRef } from 'react';
-import { Upload, FileJson, CheckCircle, AlertCircle, Tag } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { Upload, FileJson, CheckCircle, AlertCircle, Tag, Database } from 'lucide-react';
 import { 
   extractKeywordsFromVideos, 
   debugKeywordExtraction,
   getTagFrequency,
   getTopTags 
 } from '../services/keywordExtractionService';
+import {
+  processYouTubeHistory,
+  getProcessingStats,
+  debugProcessingResults
+} from '../services/youtubeHistoryService';
 
 export default function Settings() {
+  const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null); // 'success' | 'error' | null
   const [statusMessage, setStatusMessage] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
   const fileInputRef = useRef(null);
 
   // Parse Google Takeout Watch History JSON
@@ -112,8 +121,47 @@ export default function Settings() {
         console.log(`   Unique tags extracted: ${Object.keys(tagFrequency).length}`);
         console.log(`   Most common tag: #${topTags[0]?.tag} (${topTags[0]?.count} occurrences)`);
 
-        setUploadStatus('success');
-        setStatusMessage(`Successfully processed ${result.total} videos and extracted ${Object.keys(tagFrequency).length} unique tags! Check console for details.`);
+        // STEP 14: Process and save to graph database
+        console.log('\n💾 SAVING TO GRAPH DATABASE...');
+        setProcessing(true);
+        setStatusMessage('Processing videos and building graph...');
+
+        try {
+          // Process in batches (50 videos at a time)
+          const result = await processYouTubeHistory(
+            user.uid,
+            videosWithTags,
+            (current, total) => {
+              setProgress({ current, total });
+              setStatusMessage(`Processing: ${current}/${total} videos (${Math.round(current/total * 100)}%)`);
+            }
+          );
+
+          // Get final statistics
+          const stats = getProcessingStats(videosWithTags);
+          debugProcessingResults(stats);
+
+          if (result.success) {
+            setUploadStatus('success');
+            setStatusMessage(
+              `Successfully processed ${result.processed} videos! ` +
+              `Created ${stats.uniqueTags} nodes and ${stats.totalConnections} connections. ` +
+              `Go to Mind Map to see your intellectual history!`
+            );
+          } else {
+            setUploadStatus('error');
+            setStatusMessage(
+              `Processed ${result.processed} videos with ${result.errors} errors. ` +
+              `Check console for details.`
+            );
+          }
+        } catch (error) {
+          console.error('❌ Processing error:', error);
+          setUploadStatus('error');
+          setStatusMessage(`Error processing history: ${error.message}`);
+        } finally {
+          setProcessing(false);
+        }
       } else {
         console.error('❌ Parse error:', result.error);
         setUploadStatus('error');
@@ -238,7 +286,30 @@ export default function Settings() {
           {uploading && (
             <div className="flex items-center justify-center gap-2">
               <div className="w-6 h-6 border-3 border-neon-blue border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-neon-blue">Processing file...</span>
+              <span className="text-neon-blue">Reading file...</span>
+            </div>
+          )}
+
+          {processing && (
+            <div className="flex flex-col items-center justify-center gap-3">
+              <div className="flex items-center gap-2">
+                <Database className="text-neon-purple animate-pulse" size={24} />
+                <span className="text-neon-purple font-semibold">Building Graph...</span>
+              </div>
+              {progress.total > 0 && (
+                <div className="w-full max-w-md">
+                  <div className="flex justify-between text-xs text-cyber-muted mb-1">
+                    <span>{progress.current} / {progress.total} videos</span>
+                    <span>{Math.round(progress.current / progress.total * 100)}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-cyber-dark rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-neon-blue via-neon-purple to-neon-green transition-all duration-300"
+                      style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllTagConnections } from '../services/tagConnectionService';
 import { getTagAnalytics } from '../services/dailyLogService';
 import { getUserTagMappings } from '../services/tagMappingService';
 import { TAG_TYPES, getTagTypeConfig } from '../constants/tagTypes';
 import ForceGraph2D from 'react-force-graph-2d';
-import { Brain, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { Brain, RefreshCw, Sliders } from 'lucide-react';
 
 export default function MindMap() {
   const { user } = useAuth();
@@ -13,6 +13,7 @@ export default function MindMap() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [stats, setStats] = useState({ totalNodes: 0, totalLinks: 0, strongestConnection: null });
   const [minWeight, setMinWeight] = useState(1);
+  const [minNodeWeight, setMinNodeWeight] = useState(5);
   const [userMappings, setUserMappings] = useState({});
 
   useEffect(() => {
@@ -20,6 +21,42 @@ export default function MindMap() {
       loadGraphData();
     }
   }, [user, minWeight]);
+
+  // Memoized filtered data for noise reduction
+  const filteredGraphData = useMemo(() => {
+    if (!graphData.nodes || graphData.nodes.length === 0) {
+      return { nodes: [], links: [] };
+    }
+
+    // Filter nodes by minimum frequency
+    let filteredNodes = graphData.nodes.filter(node => 
+      (node.frequency || 0) >= minNodeWeight
+    );
+
+    // Sort by frequency and apply hard cap of 300 nodes
+    if (filteredNodes.length > 300) {
+      filteredNodes = filteredNodes
+        .sort((a, b) => (b.frequency || 0) - (a.frequency || 0))
+        .slice(0, 300);
+    }
+
+    // Create a Set of valid node IDs for fast lookup
+    const validNodeIds = new Set(filteredNodes.map(node => node.id));
+
+    // Filter links where both source and target exist in filtered nodes
+    const filteredLinks = graphData.links.filter(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      return validNodeIds.has(sourceId) && validNodeIds.has(targetId);
+    });
+
+    console.log(`🔍 Noise Filter: ${filteredNodes.length}/${graphData.nodes.length} nodes, ${filteredLinks.length}/${graphData.links.length} links`);
+
+    return {
+      nodes: filteredNodes,
+      links: filteredLinks,
+    };
+  }, [graphData, minNodeWeight]);
 
   const loadGraphData = async () => {
     setLoading(true);
@@ -202,6 +239,30 @@ export default function MindMap() {
         </div>
         
         <div className="flex gap-3 items-center">
+          {/* Noise Filter Slider */}
+          <div className="flex items-center gap-3 px-4 py-2 bg-cyber-grey border border-neon-green/30 rounded-lg">
+            <Sliders className="text-neon-green" size={18} />
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-neon-green font-semibold">
+                Signal Strength: {minNodeWeight}
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="50"
+                value={minNodeWeight}
+                onChange={(e) => setMinNodeWeight(Number(e.target.value))}
+                className="w-32 h-1 bg-cyber-dark rounded-lg appearance-none cursor-pointer slider-thumb"
+                style={{
+                  background: `linear-gradient(to right, #39FF14 0%, #39FF14 ${(minNodeWeight - 1) / 49 * 100}%, #1a1a1a ${(minNodeWeight - 1) / 49 * 100}%, #1a1a1a 100%)`
+                }}
+              />
+              <p className="text-xs text-cyber-muted">
+                {filteredGraphData.nodes.length} / {graphData.nodes.length} nodes
+              </p>
+            </div>
+          </div>
+
           {/* Weight Filter */}
           <div className="flex items-center gap-2">
             <label className="text-sm text-cyber-muted">Min Weight:</label>
@@ -230,18 +291,22 @@ export default function MindMap() {
 
       {/* Statistics */}
       {!loading && stats.totalNodes > 0 && (
-        <div className="mb-4 grid grid-cols-3 gap-4">
+        <div className="mb-4 grid grid-cols-4 gap-4">
           <div className="p-4 bg-cyber-grey border border-neon-blue/30 rounded-lg">
-            <p className="text-cyber-muted text-xs mb-1">Nodes (Tags)</p>
+            <p className="text-cyber-muted text-xs mb-1">Total Nodes</p>
             <p className="text-2xl font-bold text-neon-blue">{stats.totalNodes}</p>
+          </div>
+          <div className="p-4 bg-cyber-grey border border-neon-green/30 rounded-lg">
+            <p className="text-cyber-muted text-xs mb-1">Displayed</p>
+            <p className="text-2xl font-bold text-neon-green">{filteredGraphData.nodes.length}</p>
           </div>
           <div className="p-4 bg-cyber-grey border border-neon-purple/30 rounded-lg">
             <p className="text-cyber-muted text-xs mb-1">Connections</p>
-            <p className="text-2xl font-bold text-neon-purple">{stats.totalLinks}</p>
+            <p className="text-2xl font-bold text-neon-purple">{filteredGraphData.links.length}</p>
           </div>
-          <div className="p-4 bg-cyber-grey border border-neon-green/30 rounded-lg">
+          <div className="p-4 bg-cyber-grey border border-neon-blue/30 rounded-lg">
             <p className="text-cyber-muted text-xs mb-1">Strongest Link</p>
-            <p className="text-sm font-bold text-neon-green">
+            <p className="text-sm font-bold text-neon-blue">
               {stats.strongestConnection 
                 ? `${stats.strongestConnection.source} ↔ ${stats.strongestConnection.target} (${stats.strongestConnection.weight})`
                 : 'N/A'
@@ -305,13 +370,13 @@ export default function MindMap() {
           </div>
           
           <ForceGraph2D
-            graphData={graphData}
+            graphData={filteredGraphData}
             width={window.innerWidth - 400}
             height={window.innerHeight - 350}
             nodeLabel={node => `${node.name} (${node.type || 'Concept'}) - used ${node.frequency} times`}
             nodeCanvasObject={paintNode}
             linkCanvasObject={paintLink}
-            linkDirectionalParticles={3}
+            linkDirectionalParticles={2}
             linkDirectionalParticleWidth={link => Math.sqrt(link.weight || 1) * 1.5}
             linkDirectionalParticleSpeed={0.003}
             backgroundColor="rgba(10, 10, 10, 0)"
@@ -321,7 +386,7 @@ export default function MindMap() {
             chargeStrength={-1500}
             d3AlphaDecay={0.01}
             d3VelocityDecay={0.15}
-            cooldownTicks={200}
+            cooldownTicks={100}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
             nodeId="id"

@@ -11,3 +11,38 @@ body {
   background-color: #121212;
   color: #E0E0E0;
 }
+
+/* Custom Slider Styling */
+input[type="range"].slider-thumb::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #39FF14;
+  cursor: pointer;
+  box-shadow: 0 0 10px #39FF14;
+  transition: all 0.2s;
+}
+
+input[type="range"].slider-thumb::-webkit-slider-thumb:hover {
+  width: 20px;
+  height: 20px;
+  box-shadow: 0 0 15px #39FF14;
+}
+
+input[type="range"].slider-thumb::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #39FF14;
+  cursor: pointer;
+  box-shadow: 0 0 10px #39FF14;
+  border: none;
+  transition: all 0.2s;
+}
+
+input[type="range"].slider-thumb::-moz-range-thumb:hover {
+  width: 20px;
+  height: 20px;
+  box-shadow: 0 0 15px #39FF14;
+}
