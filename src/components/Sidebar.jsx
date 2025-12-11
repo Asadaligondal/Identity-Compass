@@ -3,6 +3,7 @@ import {
   LayoutDashboard, 
   FileText,
   Brain,
+  TrendingUp,
   Settings,
   LogOut
 } from 'lucide-react';
@@ -15,6 +16,7 @@ export default function Sidebar() {
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/daily-log', icon: FileText, label: 'Daily Log' },
     { path: '/mind-map', icon: Brain, label: 'Mind Map' },
+    { path: '/analytics', icon: TrendingUp, label: 'Analytics' },
     { path: '/settings', icon: Settings, label: 'Settings' },
   ];
 
