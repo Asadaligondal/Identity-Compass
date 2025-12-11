@@ -16,7 +16,8 @@ const COLLECTION_NAME = 'tag_mappings';
  *   mappings: {
  *     [tagName]: {
  *       dimension: string,
- *       type: string (Concept, Book, Person, Project)
+ *       type: string (Concept, Book, Person, Project),
+ *       category: string (Career, Spiritual, Health, Social, Intellectual, Entertainment, Unassigned)
  *     }
  *   },
  *   updatedAt: Timestamp
@@ -118,3 +119,79 @@ export const saveMultipleTagMappings = async (userId, mappings) => {
     throw error;
   }
 };
+
+// Get all unassigned tags (for AI categorization)
+export const getUnassignedTags = async (userId) => {
+  try {
+    const mappings = await getUserTagMappings(userId);
+    const unassigned = [];
+    
+    Object.keys(mappings).forEach(tag => {
+      const mapping = mappings[tag];
+      const category = mapping.category || 'Unassigned';
+      if (category === 'Unassigned') {
+        unassigned.push(tag);
+      }
+    });
+    
+    return unassigned;
+  } catch (error) {
+    console.error('Error fetching unassigned tags:', error);
+    throw error;
+  }
+};
+
+// Update tag categories (for AI categorization)
+export const updateTagCategories = async (userId, categoryMap) => {
+  try {
+    console.log('💾 Updating tag categories:', categoryMap);
+    
+    const docRef = doc(db, COLLECTION_NAME, userId);
+    const docSnap = await getDoc(docRef);
+    
+    if (!docSnap.exists()) {
+      console.warn('No tag mappings found for user');
+      return { success: false, message: 'No tag mappings found' };
+    }
+    
+    const currentMappings = docSnap.data().mappings || {};
+    console.log('📋 Current mappings before update:', Object.keys(currentMappings).length, 'tags');
+    
+    const updatedMappings = { ...currentMappings };
+    
+    // Update categories for each tag
+    Object.keys(categoryMap).forEach(tag => {
+      const normalizedTag = tag.toLowerCase().trim();
+      const category = categoryMap[tag];
+      
+      if (updatedMappings[normalizedTag]) {
+        console.log(`✏️ Updating existing tag "${normalizedTag}" with category: ${category}`);
+        updatedMappings[normalizedTag] = {
+          ...updatedMappings[normalizedTag],
+          category: category
+        };
+      } else {
+        console.log(`➕ Creating new tag "${normalizedTag}" with category: ${category}`);
+        // Create new mapping if tag doesn't exist
+        updatedMappings[normalizedTag] = {
+          dimension: 'Unknown',
+          type: 'Concept',
+          category: category
+        };
+      }
+    });
+    
+    await updateDoc(docRef, {
+      mappings: updatedMappings,
+      updatedAt: new Date(),
+    });
+    
+    console.log('✅ Successfully updated Firestore with new categories');
+    
+    return { success: true, updatedCount: Object.keys(categoryMap).length };
+  } catch (error) {
+    console.error('Error updating tag categories:', error);
+    throw error;
+  }
+};
+

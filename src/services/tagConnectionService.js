@@ -176,6 +176,29 @@ export const getAllTagConnections = async (minWeight = 1) => {
 };
 
 /**
+ * Get all unique tags from tag connections
+ * @returns {Promise<string[]>} - Array of unique tag names
+ */
+export const getAllUniqueTagsFromConnections = async () => {
+  try {
+    const connectionsRef = collection(db, COLLECTION_NAME);
+    const querySnapshot = await getDocs(connectionsRef);
+    const uniqueTags = new Set();
+    
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      uniqueTags.add(data.source);
+      uniqueTags.add(data.target);
+    });
+    
+    return Array.from(uniqueTags);
+  } catch (error) {
+    console.error('Error fetching unique tags from connections:', error);
+    throw error;
+  }
+};
+
+/**
  * Debug function to log all connections
  */
 export const debugTagConnections = async () => {
@@ -217,3 +240,40 @@ export const debugTagConnections = async () => {
     console.error('Error debugging connections:', error);
   }
 };
+
+/**
+ * Remove all connections involving a specific tag (useful for removing noise tags like "watched")
+ * @param {string} tagToRemove - Tag name to remove from all connections
+ * @returns {Promise<{deleted: number}>} - Number of connections deleted
+ */
+export const removeTagFromConnections = async (tagToRemove) => {
+  try {
+    const normalizedTag = tagToRemove.toLowerCase().trim();
+    console.log(`🗑️ Removing all connections with tag: "${normalizedTag}"`);
+    
+    const querySnapshot = await getDocs(collection(db, COLLECTION_NAME));
+    const batch = writeBatch(db);
+    let deleteCount = 0;
+    
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const source = data.source?.toLowerCase();
+      const target = data.target?.toLowerCase();
+      
+      // Delete if connection involves the tag to remove
+      if (source === normalizedTag || target === normalizedTag) {
+        batch.delete(docSnap.ref);
+        deleteCount++;
+      }
+    });
+    
+    await batch.commit();
+    console.log(`✅ Deleted ${deleteCount} connections involving "${normalizedTag}"`);
+    
+    return { deleted: deleteCount };
+  } catch (error) {
+    console.error('Error removing tag from connections:', error);
+    throw error;
+  }
+};
+
