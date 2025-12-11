@@ -76,13 +76,14 @@ export default function MindMap() {
       const fg = forceGraphRef.current;
       
       // Access the underlying d3 force simulation
-      fg.d3Force('charge').strength(-500); // Strong repulsion (anti-gravity)
-      fg.d3Force('link').distance(100); // Enforce minimum distance between connected nodes
+      fg.d3Force('charge').strength(-800); // Strong repulsion (anti-gravity)
+      fg.d3Force('link').distance(150); // Enforce minimum distance between connected nodes
       
       // Add collision force to prevent node overlap
       fg.d3Force('collide', forceCollide().radius(node => {
-        const nodeSize = Math.sqrt(node.val || 1) * 4 + 8;
-        return nodeSize + 10; // Add padding around nodes
+        const isMainNode = node.isMainNode || node.type === 'Category';
+        const nodeSize = isMainNode ? 20 : 8;
+        return nodeSize + 15; // Add padding around nodes
       }));
 
       // Semantic Gravity: Pull nodes toward their category islands
@@ -154,42 +155,37 @@ export default function MindMap() {
       return;
     }
     
-    const label = node.name || '';
+    // Show only first word of video titles to avoid clutter
+    const fullLabel = node.name || '';
+    const label = node.type === 'Video' ? fullLabel.split(' ')[0] : fullLabel;
     const fontSize = 14 / globalScale;
-    const nodeSize = Math.sqrt(node.val || 1) * 4 + 8;
+    const isMainNode = node.isMainNode || node.type === 'Category';
+    const nodeSize = isMainNode ? 20 : 8; // Bigger white dots for categories, smaller for videos
     const category = node.category || DIMENSIONS.UNASSIGNED;
     const isHovered = hoveredNode === node.id;
-    const isMainNode = node.isMainNode || node.type === 'Category';
     
-    // Obsidian-style colors: dark gray with subtle category tint
+    // All nodes are white dots now
     const categoryColor = getDimensionColor(category);
-    const baseColor = isMainNode ? '#6B7280' : '#4B5563'; // Gray-500 for main, Gray-600 for videos
     
     // Draw circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
     
     if (isHovered) {
-      // Bright white fill on hover (Obsidian style)
+      // Bright white fill on hover with category color glow
       ctx.fillStyle = '#FFFFFF';
-    } else if (isMainNode) {
-      // Category nodes: subtle category color
-      ctx.fillStyle = categoryColor + '99'; // Add transparency
     } else {
-      // Video nodes: dark gray
-      ctx.fillStyle = baseColor;
+      // White dots for all nodes
+      ctx.fillStyle = '#FFFFFF';
     }
     ctx.fill();
     
-    // Stroke
+    // Stroke with category color on hover
     if (isHovered) {
       ctx.strokeStyle = categoryColor;
       ctx.lineWidth = 3;
-    } else {
-      ctx.strokeStyle = '#374151'; // Gray-700 border
-      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
-    ctx.stroke();
     
     // Always show labels for all nodes (main categories and videos)
     ctx.font = `${isMainNode ? 'bold' : ''} ${fontSize}px 'Inter', -apple-system, sans-serif`;
@@ -414,8 +410,11 @@ export default function MindMap() {
             cooldownTicks={100}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
+            minZoom={0.5}
+            maxZoom={3}
             nodeId="id"
             onNodeHover={node => setHoveredNode(node ? node.id : null)}
+            onEngineStop={() => forceGraphRef.current?.zoomToFit(400, 50)}
           />
         </div>
       )}
