@@ -1,14 +1,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { getAllTagConnections } from '../services/tagConnectionService';
-import { getTagAnalytics } from '../services/dailyLogService';
-import { getUserTagMappings } from '../services/tagMappingService';
 import { getCategorizedVideos, buildGraphFromCategories } from '../services/categorizedVideoService';
-import { TAG_TYPES, getTagTypeConfig } from '../constants/tagTypes';
-import { DIMENSIONS, getDimensionColor, DIMENSION_CONFIG } from '../constants/dimensions';
+import { DIMENSIONS, getDimensionColor } from '../constants/dimensions';
 import ForceGraph2D from 'react-force-graph-2d';
-import { forceCollide, forceX, forceY } from 'd3-force';
-import { Brain, RefreshCw, Sliders, Layers } from 'lucide-react';
+import { forceCollide } from 'd3-force';
+import { Brain, RefreshCw } from 'lucide-react';
 
 export default function MindMap() {
   const { user } = useAuth();
@@ -76,36 +72,17 @@ export default function MindMap() {
       const fg = forceGraphRef.current;
       
       // Access the underlying d3 force simulation
-      fg.d3Force('charge').strength(-800); // Strong repulsion (anti-gravity)
-      fg.d3Force('link').distance(150); // Enforce minimum distance between connected nodes
+      fg.d3Force('charge').strength(-150); // Gentle repulsion for smooth movement
+      fg.d3Force('link').distance(80).strength(0.5); // Shorter links, weaker pull
       
-      // Add collision force to prevent node overlap
+      // Add collision force to prevent node overlap (without too much repulsion)
       fg.d3Force('collide', forceCollide().radius(node => {
         const isMainNode = node.isMainNode || node.type === 'Category';
         const nodeSize = isMainNode ? 20 : 8;
-        return nodeSize + 15; // Add padding around nodes
-      }));
+        return nodeSize + 5; // Minimal padding to prevent overlap only
+      }).strength(0.7));
 
-      // Semantic Gravity: Pull nodes toward their category islands
-      if (groupByCategory) {
-        // X-axis positioning (horizontal islands)
-        fg.d3Force('positioningX', forceX().x(node => {
-          const category = node.category || DIMENSIONS.UNASSIGNED;
-          const config = DIMENSION_CONFIG[category];
-          return config?.gravityX || 0;
-        }).strength(0.3)); // Gentle pull strength
-        
-        // Y-axis positioning (vertical islands)
-        fg.d3Force('positioningY', forceY().y(node => {
-          const category = node.category || DIMENSIONS.UNASSIGNED;
-          const config = DIMENSION_CONFIG[category];
-          return config?.gravityY || 0;
-        }).strength(0.3));
-      } else {
-        // Disable positioning forces when grouping is off
-        fg.d3Force('positioningX', null);
-        fg.d3Force('positioningY', null);
-      }
+      // Categories are now free to move naturally without geometric constraints
 
       // Reheat simulation to apply new forces
       fg.d3ReheatSimulation();
@@ -240,62 +217,6 @@ export default function MindMap() {
         </div>
         
         <div className="flex gap-3 items-center">
-          {/* Noise Filter Slider */}
-          <div className="flex items-center gap-3 px-4 py-2 bg-cyber-grey border border-neon-green/30 rounded-lg">
-            <Sliders className="text-neon-green" size={18} />
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-neon-green font-semibold">
-                Signal Strength: {minNodeWeight}
-              </label>
-              <input
-                type="range"
-                min="1"
-                max="50"
-                value={minNodeWeight}
-                onChange={(e) => setMinNodeWeight(Number(e.target.value))}
-                className="w-32 h-1 bg-cyber-dark rounded-lg appearance-none cursor-pointer slider-thumb"
-                style={{
-                  background: `linear-gradient(to right, #39FF14 0%, #39FF14 ${(minNodeWeight - 1) / 49 * 100}%, #1a1a1a ${(minNodeWeight - 1) / 49 * 100}%, #1a1a1a 100%)`
-                }}
-              />
-              <p className="text-xs text-cyber-muted">
-                {filteredGraphData.nodes.length} / {graphData.nodes.length} nodes
-              </p>
-            </div>
-          </div>
-
-          {/* Group by Category Toggle */}
-          <button
-            onClick={() => setGroupByCategory(!groupByCategory)}
-            className={`
-              flex items-center gap-2 px-4 py-2 border rounded-lg transition-all font-semibold
-              ${groupByCategory 
-                ? 'bg-neon-purple/20 border-neon-purple text-neon-purple shadow-lg shadow-neon-purple/20' 
-                : 'bg-cyber-grey border-neon-purple/30 text-cyber-muted hover:border-neon-purple/50'
-              }
-            `}
-          >
-            <Layers size={18} />
-            <span className="text-sm">
-              {groupByCategory ? 'Islands: ON' : 'Islands: OFF'}
-            </span>
-          </button>
-
-          {/* Weight Filter */}
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-cyber-muted">Min Weight:</label>
-            <select 
-              value={minWeight}
-              onChange={(e) => setMinWeight(Number(e.target.value))}
-              className="px-3 py-2 bg-cyber-dark border border-neon-blue/30 text-cyber-text rounded-lg focus:outline-none focus:border-neon-blue"
-            >
-              <option value={1}>1+ (All)</option>
-              <option value={2}>2+ (Common)</option>
-              <option value={3}>3+ (Frequent)</option>
-              <option value={5}>5+ (Strong)</option>
-            </select>
-          </div>
-          
           <button
             onClick={loadGraphData}
             disabled={loading}
@@ -350,46 +271,6 @@ export default function MindMap() {
           {/* Obsidian-style subtle gradient */}
           <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-[#1E1E1E] to-gray-900 opacity-60"></div>
           
-          <div className="absolute top-4 left-4 z-10 bg-slate-900/95 border border-neon-blue/50 rounded-lg p-4 text-xs shadow-lg shadow-neon-blue/20 backdrop-blur-sm max-w-xs">
-            <p className="text-neon-blue font-semibold mb-3 text-sm">
-              Life Dimensions {groupByCategory && <span className="text-neon-purple">(Islands)</span>}
-            </p>
-            <div className="space-y-2 text-cyber-muted mb-4">
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#00D4FF', boxShadow: '0 0 10px #00D4FF'}}></span>
-                <span>💼 Career/Wealth {groupByCategory && <span className="text-xs opacity-60">↖</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#B026FF', boxShadow: '0 0 10px #B026FF'}}></span>
-                <span>🧘 Spiritual/Mind {groupByCategory && <span className="text-xs opacity-60">↗</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#39FF14', boxShadow: '0 0 10px #39FF14'}}></span>
-                <span>💪 Health/Body {groupByCategory && <span className="text-xs opacity-60">↙</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#FF10F0', boxShadow: '0 0 10px #FF10F0'}}></span>
-                <span>👥 Social/Relationships {groupByCategory && <span className="text-xs opacity-60">↘</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#FFD700', boxShadow: '0 0 10px #FFD700'}}></span>
-                <span>📚 Intellectual/Learning {groupByCategory && <span className="text-xs opacity-60">↑</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#808080', boxShadow: '0 0 10px #808080'}}></span>
-                <span>🎮 Entertainment/Noise {groupByCategory && <span className="text-xs opacity-60">●</span>}</span>
-              </p>
-              <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#666666', boxShadow: '0 0 5px #666666'}}></span>
-                <span className="text-gray-500">❓ Unassigned</span>
-              </p>
-            </div>
-            <div className="pt-3 border-t border-neon-blue/20">
-              <p className="mb-1"><strong className="text-neon-purple">Node Size:</strong> Usage frequency</p>
-              <p><strong className="text-neon-green">Line Opacity:</strong> Hover to reveal</p>
-            </div>
-          </div>
-          
           <ForceGraph2D
             ref={forceGraphRef}
             graphData={filteredGraphData}
@@ -404,13 +285,13 @@ export default function MindMap() {
             backgroundColor="#1E1E1E"
             nodeRelSize={8}
             linkWidth={0}
-            d3VelocityDecay={0.1}
-            d3AlphaDecay={0.02}
+            d3VelocityDecay={0.4}
+            d3AlphaDecay={0.05}
             warmupTicks={100}
             cooldownTicks={100}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
-            minZoom={0.5}
+            minZoom={0.1}
             maxZoom={3}
             nodeId="id"
             onNodeHover={node => setHoveredNode(node ? node.id : null)}

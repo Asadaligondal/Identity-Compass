@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LogIn } from 'lucide-react';
+import Header from '../components/Header';
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -24,7 +25,7 @@ export default function Login() {
       } else {
         await signUp(email, password);
       }
-      navigate('/');
+      navigate('/app');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -33,7 +34,9 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-cyber-dark flex items-center justify-center p-4">
+    <div className="min-h-screen bg-cyber-dark">
+      <Header />
+      <div className="flex items-center justify-center p-4 min-h-[calc(100vh-80px)]">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -118,6 +121,7 @@ export default function Login() {
         <p className="text-center text-cyber-muted text-xs mt-6">
           Secure authentication powered by Firebase
         </p>
+      </div>
       </div>
     </div>
   );

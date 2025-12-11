@@ -2,8 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import DailyLog from './pages/DailyLog';
+import Landing from './pages/Landing';
 import MindMap from './pages/MindMap';
 import Analytics from './pages/Analytics';
 import Settings from './pages/Settings';
@@ -14,18 +13,17 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route 
-            path="/" 
+            path="/app" 
             element={
               <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }
           >
-            <Route index element={<Dashboard />} />
-            <Route path="daily-log" element={<DailyLog />} />
-            <Route path="mind-map" element={<MindMap />} />
+            <Route index element={<MindMap />} />
             <Route path="analytics" element={<Analytics />} />
             <Route path="settings" element={<Settings />} />
           </Route>
