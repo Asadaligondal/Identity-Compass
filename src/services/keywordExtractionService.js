@@ -14,6 +14,7 @@ const YOUTUBE_STOP_WORDS = [
   'live', 'stream', 'vlog', 'daily', 'weekly', 'monthly',
   'year', 'years', 'day', 'days', 'hour', 'hours', 'minute', 'minutes',
   '2019', '2020', '2021', '2022', '2023', '2024', '2025', // Common year mentions
+  'watched', 'watch', 'watching', // Remove "watched" - common noise word that clusters everything
 ];
 
 /**

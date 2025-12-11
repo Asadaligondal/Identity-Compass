@@ -1,20 +1,26 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllTagConnections } from '../services/tagConnectionService';
 import { getTagAnalytics } from '../services/dailyLogService';
 import { getUserTagMappings } from '../services/tagMappingService';
+import { getCategorizedVideos, buildGraphFromCategories } from '../services/categorizedVideoService';
 import { TAG_TYPES, getTagTypeConfig } from '../constants/tagTypes';
+import { DIMENSIONS, getDimensionColor, DIMENSION_CONFIG } from '../constants/dimensions';
 import ForceGraph2D from 'react-force-graph-2d';
-import { Brain, RefreshCw, Sliders } from 'lucide-react';
+import { forceCollide, forceX, forceY } from 'd3-force';
+import { Brain, RefreshCw, Sliders, Layers } from 'lucide-react';
 
 export default function MindMap() {
   const { user } = useAuth();
+  const forceGraphRef = useRef();
   const [loading, setLoading] = useState(true);
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [stats, setStats] = useState({ totalNodes: 0, totalLinks: 0, strongestConnection: null });
   const [minWeight, setMinWeight] = useState(1);
   const [minNodeWeight, setMinNodeWeight] = useState(5);
   const [userMappings, setUserMappings] = useState({});
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [groupByCategory, setGroupByCategory] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -29,9 +35,15 @@ export default function MindMap() {
     }
 
     // Filter nodes by minimum frequency
-    let filteredNodes = graphData.nodes.filter(node => 
-      (node.frequency || 0) >= minNodeWeight
-    );
+    // EXCEPTION: Always show category nodes (isMainNode) and video nodes (type: Video)
+    let filteredNodes = graphData.nodes.filter(node => {
+      // Always show main category nodes
+      if (node.isMainNode || node.type === 'Category') return true;
+      // Always show video nodes
+      if (node.type === 'Video') return true;
+      // For other nodes, apply frequency filter
+      return (node.frequency || 0) >= minNodeWeight;
+    });
 
     // Sort by frequency and apply hard cap of 300 nodes
     if (filteredNodes.length > 300) {
@@ -58,92 +70,75 @@ export default function MindMap() {
     };
   }, [graphData, minNodeWeight]);
 
+  // Inject custom D3 forces for "Big Bang" spreading effect + Semantic Gravity
+  useEffect(() => {
+    if (forceGraphRef.current && filteredGraphData.nodes.length > 0) {
+      const fg = forceGraphRef.current;
+      
+      // Access the underlying d3 force simulation
+      fg.d3Force('charge').strength(-500); // Strong repulsion (anti-gravity)
+      fg.d3Force('link').distance(100); // Enforce minimum distance between connected nodes
+      
+      // Add collision force to prevent node overlap
+      fg.d3Force('collide', forceCollide().radius(node => {
+        const nodeSize = Math.sqrt(node.val || 1) * 4 + 8;
+        return nodeSize + 10; // Add padding around nodes
+      }));
+
+      // Semantic Gravity: Pull nodes toward their category islands
+      if (groupByCategory) {
+        // X-axis positioning (horizontal islands)
+        fg.d3Force('positioningX', forceX().x(node => {
+          const category = node.category || DIMENSIONS.UNASSIGNED;
+          const config = DIMENSION_CONFIG[category];
+          return config?.gravityX || 0;
+        }).strength(0.3)); // Gentle pull strength
+        
+        // Y-axis positioning (vertical islands)
+        fg.d3Force('positioningY', forceY().y(node => {
+          const category = node.category || DIMENSIONS.UNASSIGNED;
+          const config = DIMENSION_CONFIG[category];
+          return config?.gravityY || 0;
+        }).strength(0.3));
+      } else {
+        // Disable positioning forces when grouping is off
+        fg.d3Force('positioningX', null);
+        fg.d3Force('positioningY', null);
+      }
+
+      // Reheat simulation to apply new forces
+      fg.d3ReheatSimulation();
+    }
+  }, [filteredGraphData, groupByCategory]);
+
   const loadGraphData = async () => {
     setLoading(true);
     try {
       console.log('🌐 Loading Mind Map data...');
       
-      // Fetch user's custom tag mappings (includes type info)
-      const mappings = await getUserTagMappings(user.uid);
-      setUserMappings(mappings);
-      console.log('📋 User mappings:', mappings);
+      // NEW: Load categorized videos directly
+      const categorizedVideos = await getCategorizedVideos(user.uid);
+      console.log(`🎬 Found ${categorizedVideos.length} categorized videos`);
       
-      // Fetch tag connections (edges)
-      const connections = await getAllTagConnections(minWeight);
-      console.log(`📊 Found ${connections.length} connections with weight >= ${minWeight}`);
+      if (categorizedVideos.length === 0) {
+        console.warn('⚠️ No categorized videos found. Please import YouTube history in Settings.');
+        setGraphData({ nodes: [], links: [] });
+        setStats({ totalNodes: 0, totalLinks: 0, strongestConnection: null });
+        setLoading(false);
+        return;
+      }
       
-      // Fetch tag frequencies (for node sizing)
-      const tagFrequencies = await getTagAnalytics(user.uid);
-      console.log(`🏷️ Found ${Object.keys(tagFrequencies).length} unique tags`);
-      
-      // Build nodes from unique tags
-      const nodeMap = new Map();
-      
-      // Add nodes from tag frequencies with type information
-      Object.entries(tagFrequencies).forEach(([tag, count]) => {
-        const mapping = mappings[tag.toLowerCase()];
-        const tagType = mapping?.type || 'Concept';
-        
-        nodeMap.set(tag.toLowerCase(), {
-          id: tag.toLowerCase(),
-          name: tag,
-          val: count, // Node size based on frequency
-          frequency: count,
-          type: tagType, // Add type for shape rendering
-        });
-      });
-      
-      // Build links array
-      const links = connections.map(conn => ({
-        source: conn.source,
-        target: conn.target,
-        weight: conn.weight,
-        value: conn.weight, // Link thickness
-      }));
-      
-      // Ensure all nodes referenced in links exist
-      connections.forEach(conn => {
-        const sourceLower = conn.source.toLowerCase();
-        const targetLower = conn.target.toLowerCase();
-        
-        if (!nodeMap.has(sourceLower)) {
-          const mapping = mappings[sourceLower];
-          nodeMap.set(sourceLower, {
-            id: sourceLower,
-            name: conn.source,
-            val: 1,
-            frequency: 1,
-            type: mapping?.type || 'Concept',
-          });
-        }
-        if (!nodeMap.has(targetLower)) {
-          const mapping = mappings[targetLower];
-          nodeMap.set(targetLower, {
-            id: targetLower,
-            name: conn.target,
-            val: 1,
-            frequency: 1,
-            type: mapping?.type || 'Concept',
-          });
-        }
-      });
-      
-      const nodes = Array.from(nodeMap.values());
-      
-      console.log(`✅ Graph ready: ${nodes.length} nodes, ${links.length} links`);
-      
-      // Calculate statistics
-      const strongestConnection = connections.length > 0 
-        ? connections[0] 
-        : null;
+      // Build graph from categorized videos
+      const graphFromCategories = buildGraphFromCategories(categorizedVideos);
+      console.log(`📊 Graph: ${graphFromCategories.nodes.length} nodes, ${graphFromCategories.links.length} links`);
       
       setStats({
-        totalNodes: nodes.length,
-        totalLinks: links.length,
-        strongestConnection,
+        totalNodes: graphFromCategories.nodes.length,
+        totalLinks: graphFromCategories.links.length,
+        strongestConnection: null,
       });
       
-      setGraphData({ nodes, links });
+      setGraphData(graphFromCategories);
     } catch (error) {
       console.error('Error loading graph data:', error);
     } finally {
@@ -151,8 +146,8 @@ export default function MindMap() {
     }
   };
 
-  // Custom node rendering - simple solid circles
-  const paintNode = (node, ctx, globalScale) => {
+  // Custom node rendering - circles colored by life dimension category
+  const paintNode = useCallback((node, ctx, globalScale) => {
     // Validate node position
     if (!node || typeof node.x !== 'number' || typeof node.y !== 'number' || 
         !isFinite(node.x) || !isFinite(node.y)) {
@@ -162,49 +157,54 @@ export default function MindMap() {
     const label = node.name || '';
     const fontSize = 14 / globalScale;
     const nodeSize = Math.sqrt(node.val || 1) * 4 + 8;
-    const tagType = node.type || 'Concept';
-    const typeConfig = getTagTypeConfig(tagType);
-    const nodeColor = typeConfig.color;
+    const category = node.category || DIMENSIONS.UNASSIGNED;
+    const isHovered = hoveredNode === node.id;
+    const isMainNode = node.isMainNode || node.type === 'Category';
     
-    // Draw simple circle
+    // Obsidian-style colors: dark gray with subtle category tint
+    const categoryColor = getDimensionColor(category);
+    const baseColor = isMainNode ? '#6B7280' : '#4B5563'; // Gray-500 for main, Gray-600 for videos
+    
+    // Draw circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
     
-    // Solid color fill
-    ctx.fillStyle = nodeColor;
+    if (isHovered) {
+      // Bright white fill on hover (Obsidian style)
+      ctx.fillStyle = '#FFFFFF';
+    } else if (isMainNode) {
+      // Category nodes: subtle category color
+      ctx.fillStyle = categoryColor + '99'; // Add transparency
+    } else {
+      // Video nodes: dark gray
+      ctx.fillStyle = baseColor;
+    }
     ctx.fill();
     
-    // White border
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2;
+    // Stroke
+    if (isHovered) {
+      ctx.strokeStyle = categoryColor;
+      ctx.lineWidth = 3;
+    } else {
+      ctx.strokeStyle = '#374151'; // Gray-700 border
+      ctx.lineWidth = 1.5;
+    }
     ctx.stroke();
     
-    // Label text
-    ctx.font = `bold ${fontSize}px Inter, sans-serif`;
+    // Always show labels for all nodes (main categories and videos)
+    ctx.font = `${isMainNode ? 'bold' : ''} ${fontSize}px 'Inter', -apple-system, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
     const labelY = node.y + nodeSize + fontSize + 4;
     
-    // Label text
-    ctx.fillStyle = '#E0E0E0';
+    // White text on hover, light gray otherwise (Obsidian style)
+    ctx.fillStyle = isHovered ? '#FFFFFF' : '#D1D5DB';
     ctx.fillText(label, node.x, labelY);
-    
-    // Add type emoji indicator below label
-    if (tagType !== 'Concept') {
-      const typeIndicators = {
-        'Book': '📚',
-        'Person': '👤',
-        'Project': '🎯'
-      };
-      ctx.font = `${fontSize * 0.8}px Inter, sans-serif`;
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillText(typeIndicators[tagType] || '', node.x, labelY + fontSize);
-    }
-  };
+  }, [hoveredNode]);
 
-  // Custom link rendering - simple solid white lines
-  const paintLink = (link, ctx, globalScale) => {
+  // Custom link rendering - almost invisible by default, opaque on hover
+  const paintLink = useCallback((link, ctx, globalScale) => {
     const start = link.source;
     const end = link.target;
     
@@ -214,15 +214,20 @@ export default function MindMap() {
     
     const lineWidth = Math.max(Math.sqrt(link.weight || 1) * 2, 1.5); // Thickness based on weight
     
-    // Draw solid white line
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = lineWidth;
+    // Check if either endpoint is hovered
+    const sourceId = typeof start === 'object' && start.id ? start.id : start;
+    const targetId = typeof end === 'object' && end.id ? end.id : end;
+    const isConnectedToHovered = hoveredNode === sourceId || hoveredNode === targetId;
+    
+    // Obsidian-style links: very subtle gray, bright on hover
+    ctx.strokeStyle = isConnectedToHovered ? 'rgba(156, 163, 175, 0.8)' : 'rgba(75, 85, 99, 0.3)';
+    ctx.lineWidth = isConnectedToHovered ? lineWidth * 2 : lineWidth * 0.8;
     ctx.globalAlpha = 1.0;
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
-  };
+  }, [hoveredNode]);
 
   return (
     <div className="max-w-7xl mx-auto h-screen flex flex-col">
@@ -262,6 +267,23 @@ export default function MindMap() {
               </p>
             </div>
           </div>
+
+          {/* Group by Category Toggle */}
+          <button
+            onClick={() => setGroupByCategory(!groupByCategory)}
+            className={`
+              flex items-center gap-2 px-4 py-2 border rounded-lg transition-all font-semibold
+              ${groupByCategory 
+                ? 'bg-neon-purple/20 border-neon-purple text-neon-purple shadow-lg shadow-neon-purple/20' 
+                : 'bg-cyber-grey border-neon-purple/30 text-cyber-muted hover:border-neon-purple/50'
+              }
+            `}
+          >
+            <Layers size={18} />
+            <span className="text-sm">
+              {groupByCategory ? 'Islands: ON' : 'Islands: OFF'}
+            </span>
+          </button>
 
           {/* Weight Filter */}
           <div className="flex items-center gap-2">
@@ -328,68 +350,72 @@ export default function MindMap() {
 
       {/* Graph Visualization */}
       {!loading && graphData.nodes.length > 0 && (
-        <div className="flex-1 bg-gradient-to-br from-slate-900 via-purple-900/20 to-slate-900 border border-neon-purple/30 rounded-lg overflow-hidden shadow-xl shadow-neon-purple/20 relative">
-          {/* Animated background grid */}
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute inset-0" style={{
-              backgroundImage: `
-                linear-gradient(rgba(0, 212, 255, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 212, 255, 0.1) 1px, transparent 1px)
-              `,
-              backgroundSize: '50px 50px'
-            }}></div>
-          </div>
-          
-          {/* Radial gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-radial from-transparent via-transparent to-slate-900/50"></div>
+        <div className="flex-1 bg-[#1E1E1E] border border-gray-800 rounded-lg overflow-hidden shadow-2xl relative">
+          {/* Obsidian-style subtle gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-[#1E1E1E] to-gray-900 opacity-60"></div>
           
           <div className="absolute top-4 left-4 z-10 bg-slate-900/95 border border-neon-blue/50 rounded-lg p-4 text-xs shadow-lg shadow-neon-blue/20 backdrop-blur-sm max-w-xs">
-            <p className="text-neon-blue font-semibold mb-3 text-sm">Tag Types:</p>
+            <p className="text-neon-blue font-semibold mb-3 text-sm">
+              Life Dimensions {groupByCategory && <span className="text-neon-purple">(Islands)</span>}
+            </p>
             <div className="space-y-2 text-cyber-muted mb-4">
               <p className="flex items-center gap-2">
                 <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#00D4FF', boxShadow: '0 0 10px #00D4FF'}}></span>
-                <span>⚪ Concept (Circle)</span>
+                <span>💼 Career/Wealth {groupByCategory && <span className="text-xs opacity-60">↖</span>}</span>
               </p>
               <p className="flex items-center gap-2">
-                <span className="inline-block w-3 h-3" style={{backgroundColor: '#FFD700', boxShadow: '0 0 10px #FFD700'}}></span>
-                <span>📚 Book (Square)</span>
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#B026FF', boxShadow: '0 0 10px #B026FF'}}></span>
+                <span>🧘 Spiritual/Mind {groupByCategory && <span className="text-xs opacity-60">↗</span>}</span>
               </p>
               <p className="flex items-center gap-2">
-                <span className="inline-block w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[10px]" style={{borderBottomColor: '#FF00FF', filter: 'drop-shadow(0 0 5px #FF00FF)'}}></span>
-                <span className="ml-1">👤 Person (Triangle)</span>
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#39FF14', boxShadow: '0 0 10px #39FF14'}}></span>
+                <span>💪 Health/Body {groupByCategory && <span className="text-xs opacity-60">↙</span>}</span>
               </p>
               <p className="flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rotate-45" style={{backgroundColor: '#39FF14', boxShadow: '0 0 10px #39FF14'}}></span>
-                <span className="ml-1">🎯 Project (Diamond)</span>
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#FF10F0', boxShadow: '0 0 10px #FF10F0'}}></span>
+                <span>👥 Social/Relationships {groupByCategory && <span className="text-xs opacity-60">↘</span>}</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#FFD700', boxShadow: '0 0 10px #FFD700'}}></span>
+                <span>📚 Intellectual/Learning {groupByCategory && <span className="text-xs opacity-60">↑</span>}</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#808080', boxShadow: '0 0 10px #808080'}}></span>
+                <span>🎮 Entertainment/Noise {groupByCategory && <span className="text-xs opacity-60">●</span>}</span>
+              </p>
+              <p className="flex items-center gap-2">
+                <span className="inline-block w-3 h-3 rounded-full" style={{backgroundColor: '#666666', boxShadow: '0 0 5px #666666'}}></span>
+                <span className="text-gray-500">❓ Unassigned</span>
               </p>
             </div>
             <div className="pt-3 border-t border-neon-blue/20">
               <p className="mb-1"><strong className="text-neon-purple">Node Size:</strong> Usage frequency</p>
-              <p><strong className="text-neon-green">Line Thickness:</strong> Connection strength</p>
+              <p><strong className="text-neon-green">Line Opacity:</strong> Hover to reveal</p>
             </div>
           </div>
           
           <ForceGraph2D
+            ref={forceGraphRef}
             graphData={filteredGraphData}
             width={window.innerWidth - 400}
             height={window.innerHeight - 350}
-            nodeLabel={node => `${node.name} (${node.type || 'Concept'}) - used ${node.frequency} times`}
+            nodeLabel={node => `${node.name} (${node.category || 'Unassigned'}) - used ${node.frequency} times`}
             nodeCanvasObject={paintNode}
             linkCanvasObject={paintLink}
             linkDirectionalParticles={2}
             linkDirectionalParticleWidth={link => Math.sqrt(link.weight || 1) * 1.5}
             linkDirectionalParticleSpeed={0.003}
-            backgroundColor="rgba(10, 10, 10, 0)"
+            backgroundColor="#1E1E1E"
             nodeRelSize={8}
             linkWidth={0}
-            linkDistance={2500}
-            chargeStrength={-1500}
-            d3AlphaDecay={0.01}
-            d3VelocityDecay={0.15}
+            d3VelocityDecay={0.1}
+            d3AlphaDecay={0.02}
+            warmupTicks={100}
             cooldownTicks={100}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
             nodeId="id"
+            onNodeHover={node => setHoveredNode(node ? node.id : null)}
           />
         </div>
       )}
