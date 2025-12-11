@@ -1,17 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Upload, FileJson, CheckCircle, AlertCircle, Tag, Database, Sparkles, Wand2, Trash2 } from 'lucide-react';
-import { 
-  extractKeywordsFromVideos, 
-  debugKeywordExtraction,
-  getTagFrequency,
-  getTopTags 
-} from '../services/keywordExtractionService';
-import {
-  processYouTubeHistory,
-  getProcessingStats,
-  debugProcessingResults
-} from '../services/youtubeHistoryService';
+import { Upload, FileJson, CheckCircle, AlertCircle, Database, Sparkles, Wand2, Tag } from 'lucide-react';
+
 import { 
   categorizeTitlesInBatches, 
   getCategoryStats 
@@ -28,15 +18,13 @@ import {
   saveMultipleTagMappings 
 } from '../services/tagMappingService';
 import { getTagAnalytics } from '../services/dailyLogService';
-import { removeTagFromConnections, getAllUniqueTagsFromConnections } from '../services/tagConnectionService';
-import { DIMENSION_CONFIG } from '../constants/dimensions';
+import { getAllUniqueTagsFromConnections } from '../services/tagConnectionService';
 
 export default function Settings() {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState(null); // 'success' | 'error' | null
   const [statusMessage, setStatusMessage] = useState('');
-  const [dragActive, setDragActive] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [categorizing, setCategorizing] = useState(false);
@@ -417,22 +405,8 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* File Upload Zone */}
-        <div
-          className={`
-            relative border-2 border-dashed rounded-lg p-12 text-center cursor-pointer
-            transition-all duration-200
-            ${dragActive 
-              ? 'border-neon-purple bg-neon-purple/10' 
-              : 'border-neon-blue/30 bg-cyber-dark hover:border-neon-blue hover:bg-neon-blue/5'
-            }
-          `}
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          onClick={handleClick}
-        >
+        {/* File Upload Button */}
+        <div className="flex flex-col items-center gap-4 py-8">
           <input
             ref={fileInputRef}
             type="file"
@@ -441,31 +415,28 @@ export default function Settings() {
             className="hidden"
           />
 
-          <FileJson 
-            className={`mx-auto mb-4 ${dragActive ? 'text-neon-purple' : 'text-neon-blue'}`} 
-            size={64} 
-          />
+          <FileJson className="text-neon-blue" size={64} />
 
-          <h3 className="text-xl font-semibold text-cyber-text mb-2">
-            {dragActive ? 'Drop your file here' : 'Upload Google Takeout JSON'}
-          </h3>
+          <button
+            onClick={handleClick}
+            disabled={uploading || processing}
+            className="px-8 py-4 bg-white text-gray-900 font-bold text-lg rounded-lg hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center gap-3"
+          >
+            <Upload size={24} />
+            <span>Upload YouTube History (.json)</span>
+          </button>
 
-          <p className="text-cyber-muted mb-4">
-            Drag and drop your .json file here, or click to browse
+          <p className="text-cyber-muted text-sm text-center max-w-md">
+            Upload your Google Takeout watch history file to automatically categorize your videos
           </p>
 
-          {uploading && (
-            <div className="flex items-center justify-center gap-2">
-              <div className="w-6 h-6 border-3 border-neon-blue border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-neon-blue">Reading file...</span>
-            </div>
-          )}
-
-          {processing && (
-            <div className="flex flex-col items-center justify-center gap-3">
+          {(uploading || processing) && (
+            <div className="flex flex-col items-center justify-center gap-3 mt-4">
               <div className="flex items-center gap-2">
                 <Database className="text-neon-purple animate-pulse" size={24} />
-                <span className="text-neon-purple font-semibold">Building Graph...</span>
+                <span className="text-neon-purple font-semibold">
+                  {uploading ? 'Reading file...' : 'Processing videos...'}
+                </span>
               </div>
               {progress.total > 0 && (
                 <div className="w-full max-w-md">
@@ -520,7 +491,7 @@ export default function Settings() {
       </div>
 
       {/* AI Auto-Categorization */}
-      <div className="bg-cyber-grey border border-neon-purple/30 rounded-lg p-6">
+      <div className="bg-cyber-grey border border-neon-purple/30 rounded-lg p-6 mb-6">
         <div className="flex items-center gap-3 mb-4">
           <Sparkles className="text-neon-purple" size={28} />
           <div>
@@ -531,43 +502,26 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Dimension Legend */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-          {Object.entries(DIMENSION_CONFIG)
-            .filter(([key]) => key !== 'Unassigned')
-            .map(([key, config]) => (
-              <div key={key} className="flex items-center gap-2 p-2 bg-cyber-dark rounded border border-gray-700">
-                <span className="text-lg">{config.emoji}</span>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold" style={{ color: config.color }}>
-                    {config.name}
-                  </p>
-                  <p className="text-xs text-cyber-muted truncate">
-                    {config.description}
-                  </p>
-                </div>
-              </div>
-            ))}
-        </div>
-
         {/* Categorize Button */}
-        <button
-          onClick={handleAutoCategorize}
-          disabled={categorizing}
-          className="w-full px-6 py-4 bg-gradient-to-r from-neon-purple via-neon-blue to-neon-green text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-neon-purple/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-        >
-          {categorizing ? (
-            <>
-              <div className="w-5 h-5 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Categorizing with AI...</span>
-            </>
-          ) : (
-            <>
-              <Wand2 size={20} />
-              <span>Auto-Categorize All Tags</span>
-            </>
-          )}
-        </button>
+        <div className="flex justify-center py-4">
+          <button
+            onClick={handleAutoCategorize}
+            disabled={categorizing}
+            className="px-8 py-4 bg-white text-gray-900 font-bold text-lg rounded-lg hover:bg-gray-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl flex items-center gap-3"
+          >
+            {categorizing ? (
+              <>
+                <div className="w-5 h-5 border-3 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
+                <span>Categorizing with AI...</span>
+              </>
+            ) : (
+              <>
+                <Wand2 size={24} />
+                <span>Categorize Videos with AI</span>
+              </>
+            )}
+          </button>
+        </div>
 
         {/* Progress Bar */}
         {categorizing && categorizationProgress.total > 0 && (
@@ -621,84 +575,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Data Cleanup Utilities */}
-      <div className="bg-cyber-grey border border-red-500/30 rounded-lg p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Trash2 className="text-red-400" size={28} />
-          <div>
-            <h2 className="text-xl font-semibold text-cyber-text">Data Cleanup</h2>
-            <p className="text-cyber-muted text-sm">
-              Remove noise tags that cluster your graph incorrectly
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="p-4 bg-cyber-dark border border-red-500/20 rounded-lg">
-            <h3 className="text-sm font-semibold text-red-400 mb-2">
-              Remove "watched" Node
-            </h3>
-            <p className="text-xs text-cyber-muted mb-3">
-              The word "watched" appears in many YouTube titles and creates a central cluster that connects unrelated videos. Click below to remove all connections involving this noise tag.
-            </p>
-            <button
-              onClick={handleRemoveNoiseTag}
-              className="px-4 py-2 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg hover:bg-red-500/30 transition-all text-sm font-semibold"
-            >
-              <Trash2 size={16} className="inline mr-2" />
-              Remove "watched" Connections
-            </button>
-          </div>
-
-          {/* Debug Database Button */}
-          <div className="p-4 bg-cyber-dark border border-neon-blue/20 rounded-lg">
-            <h3 className="text-sm font-semibold text-neon-blue mb-2">
-              🔍 Debug Database
-            </h3>
-            <p className="text-xs text-cyber-muted mb-3">
-              Check what's actually stored in your database (open browser console F12 to see results)
-            </p>
-            <button
-              onClick={async () => {
-                console.log('🔍 DEBUG DATABASE CHECK');
-                console.log('═'.repeat(80));
-                
-                const tagFreqs = await getTagAnalytics(user.uid);
-                console.log(`📊 Tag Analytics (${Object.keys(tagFreqs).length} tags):`, tagFreqs);
-                
-                const mappings = await getUserTagMappings(user.uid);
-                console.log(`📋 Tag Mappings (${Object.keys(mappings).length} tags):`, mappings);
-                
-                console.log('\n🎨 Category Breakdown:');
-                const breakdown = {};
-                Object.entries(mappings).forEach(([tag, mapping]) => {
-                  const cat = mapping.category || 'Unassigned';
-                  breakdown[cat] = (breakdown[cat] || 0) + 1;
-                });
-                console.table(breakdown);
-                
-                console.log('\n🔍 Sample Mappings (first 10):');
-                Object.entries(mappings).slice(0, 10).forEach(([tag, mapping]) => {
-                  console.log(`  ${tag}: ${mapping.category || 'Unassigned'}`);
-                });
-                
-                alert('Check browser console (F12) for database contents!');
-              }}
-              className="px-4 py-2 bg-neon-blue/20 border border-neon-blue/30 text-neon-blue rounded-lg hover:bg-neon-blue/30 transition-all text-sm font-semibold"
-            >
-              🔍 Check Database Contents
-            </button>
-          </div>
-
-          <div className="p-3 bg-yellow-500/5 border border-yellow-500/20 rounded-lg">
-            <p className="text-xs text-yellow-400/80">
-              💡 <strong>Tip:</strong> After cleanup, click "Auto-Categorize All Tags" above to properly classify your remaining tags into life dimensions.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Other Settings (Placeholder) */}
+      {/* Account Settings */}
       <div className="bg-cyber-grey border border-gray-800/30 rounded-lg p-6">
         <h2 className="text-xl font-semibold text-cyber-text mb-2">Account Settings</h2>
         <p className="text-cyber-muted text-sm">

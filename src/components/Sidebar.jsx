@@ -1,7 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
-  FileText,
   Brain,
   TrendingUp,
   Settings,
@@ -13,11 +11,9 @@ export default function Sidebar() {
   const { signOut, user } = useAuth();
 
   const navItems = [
-    { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/daily-log', icon: FileText, label: 'Daily Log' },
-    { path: '/mind-map', icon: Brain, label: 'Mind Map' },
-    { path: '/analytics', icon: TrendingUp, label: 'Analytics' },
-    { path: '/settings', icon: Settings, label: 'Settings' },
+    { path: '/app', icon: Brain, label: 'Mind Map' },
+    { path: '/app/analytics', icon: TrendingUp, label: 'Analytics' },
+    { path: '/app/settings', icon: Settings, label: 'Settings' },
   ];
 
   const handleSignOut = async () => {
