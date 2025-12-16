@@ -66,25 +66,26 @@ export default function MindMap() {
     };
   }, [graphData, minNodeWeight]);
 
-  // Inject custom D3 forces for "Big Bang" spreading effect + Semantic Gravity
+  // STEP 21: Obsidian-style physics - fluid, organic movement
   useEffect(() => {
     if (forceGraphRef.current && filteredGraphData.nodes.length > 0) {
       const fg = forceGraphRef.current;
       
-      // Access the underlying d3 force simulation
-      fg.d3Force('charge').strength(-150); // Gentle repulsion for smooth movement
-      fg.d3Force('link').distance(80).strength(0.5); // Shorter links, weaker pull
+      // Obsidian-style forces: gentle, flowing, interconnected
+      fg.d3Force('charge').strength(-200); // Moderate repulsion
+      fg.d3Force('link').distance(link => {
+        // Temporal links are shorter for tighter "trains of thought"
+        return link.type === 'temporal' ? 50 : 100;
+      }).strength(0.6);
       
-      // Add collision force to prevent node overlap (without too much repulsion)
+      // Collision force for gentle spacing
       fg.d3Force('collide', forceCollide().radius(node => {
         const isMainNode = node.isMainNode || node.type === 'Category';
-        const nodeSize = isMainNode ? 20 : 8;
-        return nodeSize + 5; // Minimal padding to prevent overlap only
-      }).strength(0.7));
+        const nodeSize = isMainNode ? 25 : 10;
+        return nodeSize + 8;
+      }).strength(0.8));
 
-      // Categories are now free to move naturally without geometric constraints
-
-      // Reheat simulation to apply new forces
+      // Reheat simulation
       fg.d3ReheatSimulation();
     }
   }, [filteredGraphData, groupByCategory]);
@@ -124,78 +125,114 @@ export default function MindMap() {
     }
   };
 
-  // Custom node rendering - circles colored by life dimension category
+  // STEP 21: Obsidian-style custom node rendering with glow effects
   const paintNode = useCallback((node, ctx, globalScale) => {
-    // Validate node position
     if (!node || typeof node.x !== 'number' || typeof node.y !== 'number' || 
         !isFinite(node.x) || !isFinite(node.y)) {
       return;
     }
     
-    // Show only first word of video titles to avoid clutter
-    const fullLabel = node.name || '';
-    const label = node.type === 'Video' ? fullLabel.split(' ')[0] : fullLabel;
-    const fontSize = 14 / globalScale;
     const isMainNode = node.isMainNode || node.type === 'Category';
-    const nodeSize = isMainNode ? 20 : 8; // Bigger white dots for categories, smaller for videos
+    const nodeSize = isMainNode ? 25 : 10;
     const category = node.category || DIMENSIONS.UNASSIGNED;
+    const categoryColor = getDimensionColor(category);
     const isHovered = hoveredNode === node.id;
     
-    // All nodes are white dots now
-    const categoryColor = getDimensionColor(category);
+    // Check if node should be faded (spotlight effect)
+    const shouldFade = hoveredNode && !isHovered && !isNodeConnected(node.id);
     
-    // Draw circle
+    // GLOW EFFECT: shadowBlur for Obsidian aesthetic
+    ctx.save();
+    if (!shouldFade) {
+      ctx.shadowBlur = isHovered ? 25 : 15;
+      ctx.shadowColor = categoryColor;
+    }
+    
+    // Draw glowing circle
     ctx.beginPath();
     ctx.arc(node.x, node.y, nodeSize, 0, 2 * Math.PI);
     
-    if (isHovered) {
-      // Bright white fill on hover with category color glow
-      ctx.fillStyle = '#FFFFFF';
+    if (shouldFade) {
+      // Faded for spotlight effect
+      ctx.fillStyle = 'rgba(100, 100, 100, 0.1)';
+    } else if (isHovered) {
+      ctx.fillStyle = categoryColor;
     } else {
-      // White dots for all nodes
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = isMainNode ? categoryColor : 'rgba(255, 255, 255, 0.8)';
     }
     ctx.fill();
     
-    // Stroke with category color on hover
-    if (isHovered) {
-      ctx.strokeStyle = categoryColor;
-      ctx.lineWidth = 3;
+    // Subtle stroke
+    if (!shouldFade) {
+      ctx.strokeStyle = isHovered ? '#FFFFFF' : categoryColor;
+      ctx.lineWidth = isHovered ? 2 : 1;
       ctx.stroke();
     }
+    ctx.restore();
     
-    // Always show labels for all nodes (main categories and videos)
-    ctx.font = `${isMainNode ? 'bold' : ''} ${fontSize}px 'Inter', -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    
-    const labelY = node.y + nodeSize + fontSize + 4;
-    
-    // White text on hover, light gray otherwise (Obsidian style)
-    ctx.fillStyle = isHovered ? '#FFFFFF' : '#D1D5DB';
-    ctx.fillText(label, node.x, labelY);
+    // LABELS: Show for large nodes, hide for small
+    const showLabel = node.val > 5 || isMainNode || isHovered;
+    if (showLabel && !shouldFade) {
+      const fullLabel = node.name || '';
+      const label = node.type === 'Video' ? fullLabel.split(' ')[0] : fullLabel;
+      const fontSize = (isMainNode ? 16 : 12) / globalScale;
+      
+      ctx.font = `${isMainNode ? 'bold' : ''} ${fontSize}px 'Courier New', monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      const labelY = node.y + nodeSize + fontSize + 4;
+      
+      // Semi-transparent text, brighter on hover
+      ctx.fillStyle = isHovered ? '#FFFFFF' : 'rgba(200, 200, 200, 0.7)';
+      ctx.fillText(label, node.x, labelY);
+    }
   }, [hoveredNode]);
+  
+  // Helper: Check if node is connected to hovered node
+  const isNodeConnected = useCallback((nodeId) => {
+    if (!hoveredNode) return false;
+    
+    return filteredGraphData.links.some(link => {
+      const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+      const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+      return (sourceId === hoveredNode && targetId === nodeId) || 
+             (targetId === hoveredNode && sourceId === nodeId);
+    });
+  }, [hoveredNode, filteredGraphData]);
 
-  // Custom link rendering - almost invisible by default, opaque on hover
+  // STEP 21: Spotlight effect - fade non-connected links
   const paintLink = useCallback((link, ctx, globalScale) => {
     const start = link.source;
     const end = link.target;
     
-    // Validate link positions
     if (typeof start !== 'object' || typeof end !== 'object') return;
     if (!isFinite(start.x) || !isFinite(start.y) || !isFinite(end.x) || !isFinite(end.y)) return;
     
-    const lineWidth = Math.max(Math.sqrt(link.weight || 1) * 2, 1.5); // Thickness based on weight
-    
-    // Check if either endpoint is hovered
     const sourceId = typeof start === 'object' && start.id ? start.id : start;
     const targetId = typeof end === 'object' && end.id ? end.id : end;
     const isConnectedToHovered = hoveredNode === sourceId || hoveredNode === targetId;
     
-    // Obsidian-style links: very subtle gray, bright on hover
-    ctx.strokeStyle = isConnectedToHovered ? 'rgba(156, 163, 175, 0.8)' : 'rgba(75, 85, 99, 0.3)';
-    ctx.lineWidth = isConnectedToHovered ? lineWidth * 2 : lineWidth * 0.8;
-    ctx.globalAlpha = 1.0;
+    // SPOTLIGHT: If hovered and NOT connected, fade to almost invisible
+    const shouldFade = hoveredNode && !isConnectedToHovered;
+    
+    const lineWidth = Math.max(Math.sqrt(link.weight || 1) * 1.5, 1);
+    
+    if (shouldFade) {
+      // Almost invisible
+      ctx.strokeStyle = 'rgba(50, 50, 50, 0.1)';
+      ctx.lineWidth = lineWidth * 0.5;
+    } else if (isConnectedToHovered) {
+      // Bright and prominent
+      const color = getDimensionColor(start.category || end.category || 'Unassigned');
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth * 2;
+    } else {
+      // Normal subtle state
+      ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
+      ctx.lineWidth = lineWidth;
+    }
+    
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
@@ -276,19 +313,20 @@ export default function MindMap() {
             graphData={filteredGraphData}
             width={window.innerWidth - 400}
             height={window.innerHeight - 350}
-            nodeLabel={node => `${node.name} (${node.category || 'Unassigned'}) - used ${node.frequency} times`}
+            nodeLabel={node => `${node.name} (${node.category || 'Unassigned'})`}
             nodeCanvasObject={paintNode}
             linkCanvasObject={paintLink}
-            linkDirectionalParticles={2}
-            linkDirectionalParticleWidth={link => Math.sqrt(link.weight || 1) * 1.5}
-            linkDirectionalParticleSpeed={0.003}
+            linkDirectionalParticles={1}
+            linkDirectionalParticleWidth={link => Math.sqrt(link.weight || 1) * 1.2}
+            linkDirectionalParticleSpeed={0.002}
             backgroundColor="#1E1E1E"
-            nodeRelSize={8}
+            nodeRelSize={10}
             linkWidth={0}
-            d3VelocityDecay={0.4}
-            d3AlphaDecay={0.05}
-            warmupTicks={100}
-            cooldownTicks={100}
+            d3VelocityDecay={0.08}
+            d3AlphaDecay={0.01}
+            dagMode={null}
+            warmupTicks={150}
+            cooldownTicks={200}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
             minZoom={0.1}
