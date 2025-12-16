@@ -236,51 +236,10 @@ export default function Settings() {
     try {
       console.log('🤖 Starting AI categorization...');
 
-      // Get ALL tags from tag_connections (YouTube + daily logs)
-      const tagsFromConnections = await getAllUniqueTagsFromConnections();
-      console.log(`🔗 Found ${tagsFromConnections.length} tags from connections (YouTube + logs)`);
-      
-      // Also get tags from analytics (daily logs)
-      const tagFrequencies = await getTagAnalytics(user.uid);
-      const tagsFromAnalytics = Object.keys(tagFrequencies);
-      console.log(`📊 Found ${tagsFromAnalytics.length} tags from analytics (daily logs)`);
-
-      // Combine both sources and remove duplicates
-      const allTags = [...new Set([...tagsFromConnections, ...tagsFromAnalytics])];
-      console.log(`📦 Total unique tags: ${allTags.length}`);
-
-      if (allTags.length === 0) {
-        setCategorizationStatus('error');
-        setCategorizationMessage('No tags found. Please add daily logs or import YouTube history first.');
-        return;
-      }
-
-      // Get existing tag mappings
-      const mappings = await getUserTagMappings(user.uid);
-      console.log(`📋 Found ${Object.keys(mappings).length} existing mappings`);
-
-      // Initialize mappings for tags that don't have them yet
-      const newMappings = {};
-      allTags.forEach(tag => {
-        const normalizedTag = tag.toLowerCase().trim();
-        if (!mappings[normalizedTag]) {
-          newMappings[normalizedTag] = {
-            dimension: 'Unknown',
-            type: 'Concept',
-            category: 'Unassigned'
-          };
-        }
-      });
-
-      if (Object.keys(newMappings).length > 0) {
-        console.log(`➕ Initializing ${Object.keys(newMappings).length} new tag mappings`);
-        await saveMultipleTagMappings(user.uid, newMappings);
-      }
-
-      // Reload mappings after initialization
+      // OPTIMIZED: Single Firestore call to get existing mappings
       const allMappings = await getUserTagMappings(user.uid);
       const mappedTags = Object.keys(allMappings);
-      console.log(`📊 Total tags after initialization: ${mappedTags.length}`);
+      console.log(`📊 Found ${mappedTags.length} existing tags`);
 
       if (mappedTags.length === 0) {
         setCategorizationStatus('error');
@@ -302,14 +261,14 @@ export default function Settings() {
         return;
       }
 
-      // For free tier testing: limit to first 5 tags
-      const tagsToProcess = unassignedTags.slice(0, 5);
-      console.log(`🧪 Testing with ${tagsToProcess.length} tags (free tier limited):`, tagsToProcess);
+      // STEP 22: Limit to 20 tags to prevent overload
+      const tagsToProcess = unassignedTags.slice(0, 20);
+      console.log(`🚀 Processing ${tagsToProcess.length} unassigned tags (limited to 20 for stability)...`);
 
-      // Categorize in batches (batch size of 3 for free tier)
+      // STEP 22: Minimize requests - 20 tags per batch = 5 requests for 100 tags
       const categorization = await categorizeTagsInBatches(
         tagsToProcess,
-        3,
+        20, // Batch size: 20 tags per call = 5 total requests for 100 tags
         (progress) => {
           setCategorizationProgress({
             current: progress.tagsProcessed,
@@ -322,15 +281,7 @@ export default function Settings() {
 
       // Update Firestore with new categories
       await updateTagCategories(user.uid, categorization);
-
-      // Verify the update by reloading mappings
-      const verifyMappings = await getUserTagMappings(user.uid);
-      console.log('🔍 VERIFICATION - Mappings after update:');
-      Object.keys(categorization).forEach(tag => {
-        const normalized = tag.toLowerCase().trim();
-        const stored = verifyMappings[normalized];
-        console.log(`  "${normalized}" → Category: ${stored?.category || 'NOT FOUND'}`);
-      });
+      console.log('✅ Firestore updated with new categories');
 
       // Get statistics
       const stats = getCategorizationStats(categorization);
@@ -342,7 +293,7 @@ export default function Settings() {
         .join(' • ');
 
       setCategorizationStatus('success');
-      setCategorizationMessage(`Successfully categorized ${tagsToProcess.length} tags (testing with free tier)! ${statsMessage}`);
+      setCategorizationMessage(`Successfully categorized ${tagsToProcess.length} tags! ${statsMessage}`);
 
     } catch (error) {
       console.error('❌ AI categorization error:', error);
