@@ -13,7 +13,7 @@ export default function MindMap() {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [stats, setStats] = useState({ totalNodes: 0, totalLinks: 0, strongestConnection: null });
   const [minWeight, setMinWeight] = useState(1);
-  const [minNodeWeight, setMinNodeWeight] = useState(5);
+  const [minNodeWeight, setMinNodeWeight] = useState(1); // STEP 22: Show all nodes including newly imported
   const [userMappings, setUserMappings] = useState({});
   const [hoveredNode, setHoveredNode] = useState(null);
   const [groupByCategory, setGroupByCategory] = useState(false);
@@ -66,19 +66,21 @@ export default function MindMap() {
     };
   }, [graphData, minNodeWeight]);
 
-  // STEP 21: Obsidian-style physics - fluid, organic movement
+  // STEP 23: Heavy, localized physics - nodes move slowly and stop quickly
   useEffect(() => {
     if (forceGraphRef.current && filteredGraphData.nodes.length > 0) {
       const fg = forceGraphRef.current;
       
-      // Obsidian-style forces: gentle, flowing, interconnected
+      // Heavy movement physics
       fg.d3Force('charge').strength(-200); // Moderate repulsion
-      fg.d3Force('link').distance(link => {
-        // Temporal links are shorter for tighter "trains of thought"
-        return link.type === 'temporal' ? 50 : 100;
-      }).strength(0.6);
       
-      // Collision force for gentle spacing
+      // STEP 23: Loose links (low strength = ropes, not springs)
+      fg.d3Force('link').distance(link => {
+        // Temporal links are shorter, regular links have breathing room
+        return link.type === 'temporal' ? 50 : 100;
+      }).strength(0.2); // Low strength prevents distant nodes from yanking
+      
+      // Collision force for spacing
       fg.d3Force('collide', forceCollide().radius(node => {
         const isMainNode = node.isMainNode || node.type === 'Category';
         const nodeSize = isMainNode ? 25 : 10;
@@ -322,13 +324,14 @@ export default function MindMap() {
             backgroundColor="#1E1E1E"
             nodeRelSize={10}
             linkWidth={0}
-            d3VelocityDecay={0.08}
-            d3AlphaDecay={0.01}
+            d3VelocityDecay={0.6}
+            d3AlphaDecay={0.02}
             dagMode={null}
             warmupTicks={150}
             cooldownTicks={200}
             enableNodeDrag={true}
             enableZoomPanInteraction={true}
+            d3AlphaMin={0.001}
             minZoom={0.1}
             maxZoom={3}
             nodeId="id"
