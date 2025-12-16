@@ -95,13 +95,15 @@ export const getCategorizedVideos = async (userId) => {
 /**
  * Build graph nodes from categorized videos
  * Groups videos by category and creates category nodes
- * @param {Array} categorizedVideos - Videos with categories
+ * STEP 21: Adds temporal linking between videos watched within 30 minutes
+ * @param {Array} categorizedVideos - Videos with categories (must have 'time' field)
  * @returns {Object} - {nodes: [], links: []}
  */
 export const buildGraphFromCategories = (categorizedVideos) => {
   const nodes = [];
   const links = [];
   const categoryCount = {};
+  const linkMap = new Map(); // Track unique links
 
   // Count videos per category
   categorizedVideos.forEach(video => {
@@ -122,30 +124,89 @@ export const buildGraphFromCategories = (categorizedVideos) => {
     });
   });
 
+  // Sort videos by timestamp for temporal linking
+  const sortedVideos = [...categorizedVideos].sort((a, b) => {
+    const timeA = a.time ? new Date(a.time).getTime() : 0;
+    const timeB = b.time ? new Date(b.time).getTime() : 0;
+    return timeA - timeB;
+  });
+
+  console.log(`🔗 Building Obsidian-style graph with temporal linking...`);
+
   // Create individual video nodes for ALL videos
-  categorizedVideos.forEach((video, idx) => {
+  sortedVideos.forEach((video, idx) => {
     const cat = video.category || 'Entertainment';
     const nodeId = `video_${idx}`;
     
     // Create video node
     nodes.push({
       id: nodeId,
-      name: video.title.substring(0, 50), // Show more of title
+      name: video.title.substring(0, 50),
       fullTitle: video.title,
       category: cat,
-      val: 2, // Smaller than category nodes
+      val: 3,
       type: 'Video',
-      isMainNode: false
+      isMainNode: false,
+      time: video.time
     });
 
     // Link video to its category
-    links.push({
+    const categoryLinkKey = `${nodeId}_${cat.toLowerCase()}`;
+    linkMap.set(categoryLinkKey, {
       source: nodeId,
       target: cat.toLowerCase(),
       weight: 1,
       value: 1
     });
   });
+
+  // STEP 21: Temporal Linking - Create "Trains of Thought" connections
+  // If Video_B was watched within 30 minutes of Video_A, link them
+  const TEMPORAL_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+  let temporalLinksCreated = 0;
+
+  for (let i = 0; i < sortedVideos.length - 1; i++) {
+    const videoA = sortedVideos[i];
+    const timeA = videoA.time ? new Date(videoA.time).getTime() : 0;
+    
+    if (!timeA) continue; // Skip if no timestamp
+
+    // Look ahead for videos within temporal window
+    for (let j = i + 1; j < sortedVideos.length; j++) {
+      const videoB = sortedVideos[j];
+      const timeB = videoB.time ? new Date(videoB.time).getTime() : 0;
+      
+      if (!timeB) continue;
+      
+      const timeDiff = timeB - timeA;
+      
+      // Stop looking if beyond temporal window
+      if (timeDiff > TEMPORAL_WINDOW_MS) break;
+      
+      // Create temporal link between videos
+      const nodeIdA = `video_${i}`;
+      const nodeIdB = `video_${j}`;
+      const linkKey = `${nodeIdA}_${nodeIdB}`;
+      const reverseLinkKey = `${nodeIdB}_${nodeIdA}`;
+      
+      // Avoid duplicate links
+      if (!linkMap.has(linkKey) && !linkMap.has(reverseLinkKey)) {
+        linkMap.set(linkKey, {
+          source: nodeIdA,
+          target: nodeIdB,
+          weight: 2, // Temporal links are stronger
+          value: 2,
+          type: 'temporal'
+        });
+        temporalLinksCreated++;
+      }
+    }
+  }
+
+  // Convert linkMap to array
+  linkMap.forEach(link => links.push(link));
+
+  console.log(`✅ Graph built: ${nodes.length} nodes, ${links.length} links (${temporalLinksCreated} temporal)`);
 
   return { nodes, links };
 };
