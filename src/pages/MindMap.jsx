@@ -66,19 +66,19 @@ export default function MindMap() {
     };
   }, [graphData, minNodeWeight]);
 
-  // STEP 23: Heavy, localized physics - nodes move slowly and stop quickly
+  // STEP 23: Heavy, localized physics with honey-like movement
   useEffect(() => {
     if (forceGraphRef.current && filteredGraphData.nodes.length > 0) {
       const fg = forceGraphRef.current;
       
-      // Heavy movement physics
+      // Balanced movement physics - honey-like flow
       fg.d3Force('charge').strength(-200); // Moderate repulsion
       
-      // STEP 23: Loose links (low strength = ropes, not springs)
+      // STEP 23: Medium-strength links for honey-like connectivity
       fg.d3Force('link').distance(link => {
         // Temporal links are shorter, regular links have breathing room
         return link.type === 'temporal' ? 50 : 100;
-      }).strength(0.2); // Low strength prevents distant nodes from yanking
+      }).strength(0.35); // Medium strength for smooth flow without excessive pull
       
       // Collision force for spacing
       fg.d3Force('collide', forceCollide().radius(node => {
@@ -324,8 +324,8 @@ export default function MindMap() {
             backgroundColor="#1E1E1E"
             nodeRelSize={10}
             linkWidth={0}
-            d3VelocityDecay={0.6}
-            d3AlphaDecay={0.02}
+            d3VelocityDecay={0.3}
+            d3AlphaDecay={0.015}
             dagMode={null}
             warmupTicks={150}
             cooldownTicks={200}
