@@ -1,4 +1,4 @@
-import { db } from '../firebase/config';
+import { db, auth } from '../firebase/config';
 import { collection, doc, writeBatch, Timestamp, setDoc, getDocs } from 'firebase/firestore';
 
 /**
@@ -20,6 +20,19 @@ export const saveCategorizedVideos = async (userId, categorizedVideos, onProgres
   let savedCount = 0;
 
   try {
+    // DEBUG: Check auth state
+    console.log('🔐 Auth Debug - Current user:', auth.currentUser);
+    console.log('🔐 Auth Debug - User UID:', auth.currentUser?.uid);
+    console.log('🔐 Auth Debug - Passed userId:', userId);
+    
+    if (!auth.currentUser) {
+      throw new Error('User not authenticated. Please sign in first.');
+    }
+    
+    if (auth.currentUser.uid !== userId) {
+      throw new Error('User ID mismatch. Please refresh and try again.');
+    }
+    
     console.log(`💾 Saving ${categorizedVideos.length} categorized videos...`);
 
     for (let i = 0; i < categorizedVideos.length; i += BATCH_SIZE) {

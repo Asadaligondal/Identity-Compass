@@ -12,7 +12,7 @@
   "dependencies": {
     "d3-force": "^3.0.0",
     "date-fns": "^4.1.0",
-    "firebase": "^12.6.0",
+    "firebase": "^12.7.0",
     "keyword-extractor": "^0.0.28",
     "lucide-react": "^0.556.0",
     "react": "^19.2.0",
